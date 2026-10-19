@@ -108,7 +108,7 @@ describe("viewport scales", () => {
     expect(scaleFor(t, t.measurements[2])).toBe(0.02);
     expect(scaleFor(t, t.measurements[3])).toBe(0.05);
     expect(scaleFor(t, t.measurements[4])).toBe(0.1);
-    expect(scaleFor(t, t.measurements[5])).toBeUndefined();
+    expect(scaleFor(t, t.measurements[5])).toBe(undefined);
   });
   it("quantities inside a viewport use its scale", () => {
     expect(quantity(t.measurements[2], 0.02)).toBeCloseTo(1, 9);
