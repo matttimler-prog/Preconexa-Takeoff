@@ -32,3 +32,29 @@ describe("measure", () => {
     expect(fmtFeetInches(0.999)).toBe(`1'-0"`);
   });
 });
+
+import { parseDistance } from "./measure";
+describe("parseDistance", () => {
+  it("reads the ways people actually type a length", () => {
+    expect(parseDistance("20")).toBe(20);
+    expect(parseDistance("20.5")).toBe(20.5);
+    expect(parseDistance("20'")).toBe(20);
+    expect(parseDistance("20 ft")).toBe(20);
+    expect(parseDistance(`20'-6"`)).toBeCloseTo(20.5, 6);
+    expect(parseDistance(`20' 6"`)).toBeCloseTo(20.5, 6);
+    expect(parseDistance(`6"`)).toBeCloseTo(0.5, 6);
+    expect(parseDistance("240 in")).toBeCloseTo(20, 6);
+    expect(parseDistance(`10' 6 1/2"`)).toBeCloseTo(10 + 6.5 / 12, 6);
+    expect(parseDistance("5 m")).toBeCloseTo(16.4042, 3);
+    expect(parseDistance("1500mm")).toBeCloseTo(4.92126, 4);
+    expect(parseDistance("150 cm")).toBeCloseTo(4.92126, 4);
+    expect(parseDistance("  12 FT ")).toBe(12);
+  });
+  it("rejects nonsense, zero and negatives", () => {
+    expect(parseDistance("")).toBeNull();
+    expect(parseDistance("abc")).toBeNull();
+    expect(parseDistance("0")).toBeNull();
+    expect(parseDistance("-5")).toBeNull();
+    expect(parseDistance("20 apples")).toBeNull();
+  });
+});

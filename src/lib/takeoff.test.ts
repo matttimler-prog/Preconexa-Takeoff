@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
-import { deleteLayer, quantity, toCsv, Takeoff } from "./takeoff";
+import { deleteLayer, quantity, toCsv } from "./takeoff";
+import type { Takeoff } from "./takeoff";
 
 const t: Takeoff = {
   layers: [{ id: "a", name: "Power", color: "#f00", visible: true }, { id: "b", name: "Lights", color: "#0f0", visible: true }],
@@ -21,5 +22,25 @@ describe("takeoff", () => {
     const r = deleteLayer(t, "a");
     expect(r.layers.map((l) => l.id)).toEqual(["b"]);
     expect(r.measurements.map((m) => m.id)).toEqual(["2"]);
+  });
+});
+
+import { ensureLayer, setScale, summarize } from "./takeoff";
+describe("summaries and scale", () => {
+  it("subtotals by layer+label and propagates uncalibrated", () => {
+    const m = (id: string, label: string, page: number, pts: { x: number; y: number }[], kind: "length" | "count" = "length") =>
+      ({ id, layerId: "a", kind, page, label, pts });
+    const t2: Takeoff = { layers: [{ id: "a", name: "Power", color: "#000", visible: true }], feetPerUnit: { 1: 1 },
+      measurements: [m("1", "EMT", 1, [{ x: 0, y: 0 }, { x: 10, y: 0 }]), m("2", "EMT", 1, [{ x: 0, y: 0 }, { x: 5, y: 0 }]), m("3", "EMT", 2, [{ x: 0, y: 0 }, { x: 5, y: 0 }]), m("4", "Rec", 2, [{ x: 1, y: 1 }], "count")] };
+    const s = summarize(t2);
+    expect(s.find((r) => r.label === "EMT")).toMatchObject({ items: 3, qty: null, unit: "LF" });
+    expect(s.find((r) => r.label === "Rec")).toMatchObject({ items: 1, qty: 1, unit: "EA" });
+    const t3 = setScale(t2, [2], 1);
+    expect(summarize(t3).find((r) => r.label === "EMT")!.qty).toBeCloseTo(20);
+  });
+  it("ensureLayer reuses by name and adds when missing", () => {
+    const base: Takeoff = { layers: [{ id: "a", name: "Power", color: "#000", visible: true }], measurements: [], feetPerUnit: {} };
+    expect(ensureLayer(base, "power", "#fff").layerId).toBe("a");
+    const r = ensureLayer(base, "Lighting", "#fff"); expect(r.takeoff.layers.length).toBe(2);
   });
 });

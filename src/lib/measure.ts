@@ -44,3 +44,32 @@ export function fmtFeetInches(ft: number): string {
   const totalIn = Math.round(ft * 12);
   return `${Math.floor(totalIn / 12)}'-${totalIn % 12}"`;
 }
+
+/** Common printed scales (paper inches -> feet), usable with full-size sheets. */
+export const SCALE_PRESETS: { label: string; feetPerPaperInch: number }[] = [
+  ["1/16\" = 1'-0\"", 16], ["3/32\" = 1'-0\"", 32 / 3], ["1/8\" = 1'-0\"", 8], ["3/16\" = 1'-0\"", 16 / 3],
+  ["1/4\" = 1'-0\"", 4], ["3/8\" = 1'-0\"", 8 / 3], ["1/2\" = 1'-0\"", 2], ["3/4\" = 1'-0\"", 4 / 3], ["1\" = 1'-0\"", 1],
+  ["1\" = 10'", 10], ["1\" = 20'", 20], ["1\" = 30'", 30], ["1\" = 40'", 40], ["1\" = 50'", 50], ["1\" = 100'", 100],
+].map(([label, f]) => ({ label: label as string, feetPerPaperInch: f as number }));
+
+export const presetFeetPerUnit = (feetPerPaperInch: number) => feetPerPaperInch / 72;
+
+/**
+ * Parse a typed real-world distance into feet. A bare number means feet.
+ * Accepts: 20, 20.5, 20', 20 ft, 20'-6", 20' 6", 10' 6 1/2", 6", 240 in, 5 m, 1500 mm, 150 cm.
+ */
+export function parseDistance(text: string): number | null {
+  const s = text.trim().toLowerCase().replace(/[“”″]/g, '"').replace(/[‘’′]/g, "'");
+  if (!s) return null;
+  if (/^\d+(\.\d+)?$/.test(s)) { const v = Number(s); return v > 0 ? v : null; }
+  const re = /(\d+(?:\.\d+)?)(?:\s+(\d+)\/(\d+))?\s*(feet|foot|ft|'|inches|inch|in|"|mm|cm|m)(?![a-z])/g;
+  const toFeet: Record<string, number> = { feet: 1, foot: 1, ft: 1, "'": 1, inches: 1 / 12, inch: 1 / 12, in: 1 / 12, '"': 1 / 12, mm: 0.00328084, cm: 0.0328084, m: 3.28084 };
+  let total = 0, used = 0, m: RegExpExecArray | null;
+  while ((m = re.exec(s))) {
+    const frac = m[2] && m[3] && Number(m[3]) ? Number(m[2]) / Number(m[3]) : 0;
+    total += (Number(m[1]) + frac) * toFeet[m[4]];
+    used += m[0].length;
+  }
+  const leftovers = s.replace(re, "").replace(/[\s,\-]/g, "");
+  return used > 0 && leftovers === "" && total > 0 ? total : null;
+}
