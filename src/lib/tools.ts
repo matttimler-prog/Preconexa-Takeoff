@@ -6,7 +6,7 @@ export type Mode = "one" | "two" | "three" | "poly" | "free";
 export type KeySpec = { key: string; shift?: boolean; alt?: boolean };
 export type ToolDef = {
   id: string; label: string; kind: Kind; shape: Shape; mode: Mode; group: "markup" | "measure"; icon: string;
-  key?: KeySpec; alias?: string; ask?: "text" | "depth"; hint: string;
+  key?: KeySpec; alias?: string; ask?: "text" | "depth" | "dims" | "link" | "image" | "stamp" | "scale"; hint: string;
 };
 
 const K = (key: string, shift = false, alt = false): KeySpec => ({ key, shift, alt });
@@ -29,6 +29,16 @@ export const TOOLS: ToolDef[] = [
   { id: "pen", label: "Pen", kind: "markup", shape: "pen", mode: "free", group: "markup", icon: "pen", key: K("p"), hint: "Press and drag to draw freehand." },
   { id: "highlight", label: "Highlight", kind: "markup", shape: "highlight", mode: "two", group: "markup", icon: "highlight", key: K("h"), hint: "Click two corners to highlight an area." },
 
+  { id: "stamp", label: "Stamp", kind: "markup", shape: "stamp", mode: "one", group: "markup", icon: "stamp", key: K("m", true), ask: "stamp", hint: "Pick a stamp in the toolbar, then click where it goes." },
+  { id: "typewriter", label: "Typewriter", kind: "markup", shape: "typewriter", mode: "one", group: "markup", icon: "typewriter", key: K("t", true), ask: "text", hint: "Click where the text goes. No box is drawn." },
+  { id: "link", label: "Hyperlink", kind: "markup", shape: "link", mode: "two", group: "markup", icon: "link", key: K("h", true), ask: "link", hint: "Drag a box, then enter a web address or a page number." },
+  { id: "image", label: "Image", kind: "markup", shape: "image", mode: "one", group: "markup", icon: "image", key: K("i"), ask: "image", hint: "Click where the picture goes, then choose the file." },
+  { id: "underline", label: "Underline text", kind: "markup", shape: "underline", mode: "two", group: "markup", icon: "underline", hint: "Drag a box over printed text to underline it." },
+  { id: "strike", label: "Strikethrough text", kind: "markup", shape: "strike", mode: "two", group: "markup", icon: "strike", hint: "Drag a box over printed text to strike it out." },
+  { id: "squiggly", label: "Squiggly underline", kind: "markup", shape: "squiggly", mode: "two", group: "markup", icon: "squiggly", hint: "Drag a box over printed text to underline it with a squiggle." },
+  { id: "hltext", label: "Highlight text", kind: "markup", shape: "hltext", mode: "two", group: "markup", icon: "hltext", hint: "Drag a box over printed text to highlight the lines." },
+  { id: "sketchrect", label: "Sketch rectangle to scale", kind: "markup", shape: "rect", mode: "one", group: "markup", icon: "sketchrect", ask: "dims", hint: "Click the corner, then type its size, e.g. 10' x 12'." },
+  { id: "sketchellipse", label: "Sketch ellipse to scale", kind: "markup", shape: "ellipse", mode: "one", group: "markup", icon: "sketchellipse", ask: "dims", hint: "Click the corner of its box, then type the size, e.g. 6' x 4'." },
   { id: "length", label: "Length", kind: "length", shape: "polyline", mode: "two", group: "measure", icon: "length", key: K("l", true, true), alias: "1", hint: "Click two points." },
   { id: "polylength", label: "Polylength", kind: "length", shape: "polyline", mode: "poly", group: "measure", icon: "polylength", key: K("q", true, true), alias: "2", hint: "Click points. Double-click or Enter to finish." },
   { id: "perimeter", label: "Perimeter", kind: "perimeter", shape: "polygon", mode: "poly", group: "measure", icon: "perimeter", key: K("p", true, true), alias: "3", hint: "Click corners. Double-click or Enter to close." },
@@ -39,6 +49,8 @@ export const TOOLS: ToolDef[] = [
   { id: "cutout", label: "Cutout (polygon)", kind: "cutout", shape: "polygon", mode: "poly", group: "measure", icon: "cutout", key: K("x", true, true), hint: "Click corners of the hole inside an area." },
   { id: "cutoutrect", label: "Cutout (rectangle)", kind: "cutout", shape: "rect", mode: "two", group: "measure", icon: "cutoutrect", hint: "Click two opposite corners of the hole." },
   { id: "cutoutellipse", label: "Cutout (ellipse)", kind: "cutout", shape: "ellipse", mode: "two", group: "measure", icon: "cutoutellipse", hint: "Click two opposite corners of the hole's box." },
+  { id: "viewport", label: "Viewport scale", kind: "markup", shape: "viewport", mode: "two", group: "measure", icon: "viewport", key: K("w", true, true), ask: "scale", hint: "Drag a box around a detail, then enter its scale. Measurements inside use it." },
+  { id: "dynfill", label: "Dynamic Fill", kind: "area", shape: "polygon", mode: "one", group: "measure", icon: "dynfill", key: K("j"), hint: "Click inside a closed room or space to measure it automatically." },
   { id: "count", label: "Count", kind: "count", shape: "point", mode: "one", group: "measure", icon: "count", key: K("c", true, true), alias: "6", hint: "Click each item." },
   { id: "diameter", label: "Diameter", kind: "diameter", shape: "diameter", mode: "two", group: "measure", icon: "diameter", key: K("d", true, true), alias: "7", hint: "Click two points across the circle." },
   { id: "radius", label: "Radius", kind: "radius", shape: "circle", mode: "two", group: "measure", icon: "radius", key: K("u", true, true), alias: "8", hint: "Click the center, then a point on the edge." },

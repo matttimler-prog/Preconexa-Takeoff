@@ -5,9 +5,14 @@ import { centroid } from "./geom";
 /** How a markup's points are interpreted. Quantity kinds live in takeoff.ts; this file is pure geometry. */
 export type Shape =
   | "polyline" | "polygon" | "rect" | "ellipse" | "arc" | "line" | "arrow" | "cloud" | "text" | "callout"
-  | "pen" | "highlight" | "dimension" | "point" | "note" | "angle" | "circle" | "diameter";
+  | "pen" | "highlight" | "dimension" | "point" | "note" | "angle" | "circle" | "diameter"
+  | "stamp" | "typewriter" | "link" | "image" | "viewport" | "underline" | "strike" | "squiggly" | "hltext";
 
-export const CLOSED: Shape[] = ["polygon", "rect", "ellipse", "cloud", "highlight", "circle", "diameter"];
+/** Shapes defined by two opposite corners and drawn/hit-tested as a rectangle. */
+export const RECTLIKE: Shape[] = ["rect", "highlight", "link", "image", "viewport", "underline", "strike", "squiggly", "hltext"];
+/** Shapes anchored at one point (their size comes from the text). */
+export const TEXTLIKE: Shape[] = ["text", "note", "stamp", "typewriter"];
+export const CLOSED: Shape[] = ["polygon", "rect", "ellipse", "cloud", "highlight", "circle", "diameter", "link", "image", "viewport", "underline", "strike", "squiggly", "hltext"];
 export const isClosed = (s: Shape) => CLOSED.includes(s);
 
 export function circleFrom3(a: Pt, b: Pt, c: Pt): { c: Pt; r: number } | null {
@@ -54,12 +59,12 @@ export function circleOf(shape: Shape, pts: Pt[]): { c: Pt; r: number } | null {
 /** The drawn path of a shape as points, and whether it closes. Used for hit tests, snapping and quantities. */
 export function outline(shape: Shape, pts: Pt[]): { pts: Pt[]; closed: boolean } {
   switch (shape) {
-    case "rect": case "highlight": return pts.length >= 2 ? { pts: rectPoints(pts[0], pts[1]), closed: true } : { pts, closed: false };
+    case "rect": case "highlight": case "link": case "image": case "viewport": case "underline": case "strike": case "squiggly": case "hltext": return pts.length >= 2 ? { pts: rectPoints(pts[0], pts[1]), closed: true } : { pts, closed: false };
     case "ellipse": return pts.length >= 2 ? { pts: ellipsePoints(pts[0], pts[1]), closed: true } : { pts, closed: false };
     case "arc": return pts.length >= 3 ? { pts: arcPoints(pts[0], pts[1], pts[2]), closed: false } : { pts, closed: false };
     case "circle": case "diameter": { const k = circleOf(shape, pts); return k ? { pts: circlePoints(k.c, k.r), closed: true } : { pts, closed: false }; }
     case "polygon": case "cloud": return { pts, closed: true };
-    case "text": case "note": case "point": return { pts: pts.slice(0, 1), closed: false };
+    case "text": case "note": case "stamp": case "typewriter": case "point": return { pts: pts.slice(0, 1), closed: false };
     default: return { pts, closed: false };
   }
 }
@@ -67,7 +72,7 @@ export function outline(shape: Shape, pts: Pt[]): { pts: Pt[]; closed: boolean }
 const ramanujan = (a: number, b: number) => Math.PI * (3 * (a + b) - Math.sqrt((3 * a + b) * (a + 3 * b)));
 /** Area in page units squared (0 for open shapes). */
 export function areaOf(shape: Shape, pts: Pt[]): number {
-  if (shape === "rect" && pts.length >= 2) return Math.abs((pts[1].x - pts[0].x) * (pts[1].y - pts[0].y));
+  if (RECTLIKE.includes(shape) && pts.length >= 2) return Math.abs((pts[1].x - pts[0].x) * (pts[1].y - pts[0].y));
   if (shape === "ellipse" && pts.length >= 2) return Math.PI * (Math.abs(pts[1].x - pts[0].x) / 2) * (Math.abs(pts[1].y - pts[0].y) / 2);
   const k = circleOf(shape, pts); if (k) return Math.PI * k.r * k.r;
   return isClosed(shape) ? polygonArea(pts) : 0;
@@ -119,7 +124,7 @@ export function labelAnchor(shape: Shape, pts: Pt[]): { pt: Pt; angle: number; o
   if (shape === "arc" && pts.length >= 3) return { pt: pts[1], angle: 0, onLine: false };
   if (isClosed(shape) && pts.length >= 2) {
     const o = outline(shape, pts);
-    return { pt: shape === "rect" || shape === "ellipse" ? { x: (pts[0].x + pts[1].x) / 2, y: (pts[0].y + pts[1].y) / 2 } : centroid(o.pts), angle: 0, onLine: false };
+    return { pt: RECTLIKE.includes(shape) || shape === "ellipse" ? { x: (pts[0].x + pts[1].x) / 2, y: (pts[0].y + pts[1].y) / 2 } : centroid(o.pts), angle: 0, onLine: false };
   }
   if (pts.length < 2) return { pt: pts[0], angle: 0, onLine: false };
   let best = 0, bl = -1;

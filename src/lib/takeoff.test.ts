@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { deleteLayer, measureLabel, quantity, toCsv } from "./takeoff";
+import { deleteLayer, measureLabel, quantity, scaleFor, toCsv } from "./takeoff";
 import type { Measurement, Takeoff } from "./takeoff";
 
 const t: Takeoff = {
@@ -93,5 +93,24 @@ describe("new measurement kinds", () => {
     const rows = toCsv(t).split("\n").slice(1).map((r) => r.split(",")[5]);
     expect(rows).toEqual(['"high"', '"low"', '"p2"']);
     expect(toCsv(t).split("\n")[0]).toContain("x_in");
+  });
+});
+
+describe("viewport scales", () => {
+  const P = (x: number, y: number) => ({ x, y });
+  const m = (o: Partial<Measurement>): Measurement => ({ id: "m", layerId: "l1", kind: "length", page: 1, label: "x", pts: [], ...o });
+  const t: Takeoff = { layers: [{ id: "l1", name: "L", color: "#000", visible: true }], feetPerUnit: { 1: 0.1 }, measurements: [
+    m({ id: "v1", kind: "markup", shape: "viewport", pts: [P(0, 0), P(200, 200)], vpScale: 0.05 }),
+    m({ id: "v2", kind: "markup", shape: "viewport", pts: [P(0, 0), P(100, 100)], vpScale: 0.02 }),
+    m({ id: "in2", pts: [P(10, 10), P(60, 10)] }), m({ id: "in1", pts: [P(150, 150), P(190, 150)] }), m({ id: "out", pts: [P(300, 300), P(340, 300)] }),
+    m({ id: "other", page: 2, pts: [P(10, 10), P(60, 10)] })] };
+  it("uses the smallest viewport containing the markup, else the page scale", () => {
+    expect(scaleFor(t, t.measurements[2])).toBe(0.02);
+    expect(scaleFor(t, t.measurements[3])).toBe(0.05);
+    expect(scaleFor(t, t.measurements[4])).toBe(0.1);
+    expect(scaleFor(t, t.measurements[5])).toBeUndefined();
+  });
+  it("quantities inside a viewport use its scale", () => {
+    expect(quantity(t.measurements[2], 0.02)).toBeCloseTo(1, 9);
   });
 });
