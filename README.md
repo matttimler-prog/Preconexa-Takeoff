@@ -13,3 +13,6 @@ Standalone takeoff tool (outside Lovable). Phase 1: PDF viewer, per-page scale c
 - Deleting a layer deletes only its measurements.
 - Backtesting: save the takeoff JSON per print, compare to known counts from past jobs (add a /backtest folder with expected values).
 - `prints/` is git-ignored; keep client drawings out of the repo.
+
+## Deploy
+Vercel builds on every push to `main` (Vite, output `dist`).
