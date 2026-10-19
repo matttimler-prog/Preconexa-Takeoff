@@ -35,8 +35,13 @@ import { regionPolygon } from "./lib/rasterfill";
 import type { Raster } from "./lib/rasterfill";
 import { findMatchesTpl, templateFrom } from "./lib/automatch";
 import type { Img } from "./lib/automatch";
+import { STATUSES, groupRows, markupRows, rowsCsv, sortRows } from "./lib/markuplist";
+import type { SortKey } from "./lib/markuplist";
+import { spaceReport, spacesCsv } from "./lib/spaces";
+import { legendRows, legendSize } from "./lib/legend";
+import { parsePages } from "./lib/pagesel";
 import { History, newHistory, push, redo as redoH, undo as undoH, canRedo, canUndo } from "./lib/history";
-import { Measurement, Takeoff, UNITS, deleteLayer, ensureLayer, measureLabel, quantity, scaleFor, setScale, shapeOf, summarize, summaryCsv, toCsv } from "./lib/takeoff";
+import { Measurement, Takeoff, UNITS, deleteLayer, ensureLayer, costKey, extended, measureLabel, quantity, scaleFor, setScale, shapeOf, summarize, summaryCsv, toCsv } from "./lib/takeoff";
 import { ToolChest, ToolPreset, addTool, defaultChest, newId } from "./lib/toolchest";
 
 pdfjs.GlobalWorkerOptions.workerSrc = workerUrl;
@@ -79,11 +84,20 @@ const inPoly = (p: Pt, pts: Pt[]) => {
 const HINT: Record<string, string> = {
   select: "Click a markup to select it, drag to move, drag a handle to reshape. Right-click for options.", pan: "Drag to pan.",
   calibrate: "Click two ends of a known dimension.", capture: "Drag a box around a symbol on the print.",
+  overlayalign: "Click a feature on the current sheet, then the same feature on the red old sheet.",
   eraser: "Drag across markups to erase them. Locked markups are skipped. Undo brings them back.",
 };
 const hintFor = (tool: string) => HINT[tool] ?? TOOL_BY_ID[tool]?.hint ?? "";
 const presetFits = (p: ToolPreset, d: ToolDef) => p.kind === d.kind && (!p.shape || p.shape === d.shape);
 const tkey = (t: ToolDef) => `${keyLabel(t.key)}${t.alias ? `${t.key ? " or " : ""}${t.alias}` : ""}`;
+
+/** A price box that saves when you leave it (so undo isn't one step per keystroke). */
+function CostInput({ value, onCommit }: { value: number | undefined; onCommit: (v: number | null) => void }) {
+  const [s, setS] = useState(value == null ? "" : String(value));
+  useEffect(() => setS(value == null ? "" : String(value)), [value]);
+  return <input style={{ width: 62 }} inputMode="decimal" placeholder="$" value={s} onChange={(e) => setS(e.target.value)}
+    onBlur={() => { const n = Number(s); onCommit(s.trim() === "" || !isFinite(n) || n < 0 ? null : n); }} onKeyDown={(e) => { if (e.key === "Enter") (e.target as HTMLInputElement).blur(); }} />;
+}
 
 export function App() {
   const [doc, setDoc] = useState<pdfjs.PDFDocumentProxy | null>(null);
@@ -101,7 +115,7 @@ export function App() {
   const [selIds, setSelIds] = useState<string[]>([]);
   const [chest, setChestState] = useState<ToolChest>(() => store.get<ToolChest>(CHEST_KEY) ?? defaultChest());
   const [leftTab, setLeftTab] = useState<"pages" | "chest" | "layers" | "search" | "bookmarks" | null>("pages");
-  const [rightTab, setRightTab] = useState<"props" | "qty" | "markups" | "keys" | "counts" | null>("props");
+  const [rightTab, setRightTab] = useState<"props" | "qty" | "markups" | "keys" | "counts" | "spaces" | "compare" | null>("props");
   const fileIn = useRef<HTMLInputElement>(null);
   const loadIn = useRef<HTMLInputElement>(null);
   const [fileName, setFileName] = useState("");
@@ -143,6 +157,13 @@ export function App() {
   const imgAt = useRef<Pt | null>(null);
   const imgDef = useRef<ToolDef | null>(null);
   const countLabel = useRef<string | null>(null);
+  const [cmp, setCmp] = useState<{ doc: pdfjs.PDFDocumentProxy; name: string; off: number; op: number; dx: number; dy: number } | null>(null);
+  const cmpCanvas = useRef<HTMLCanvasElement>(null);
+  const cmpIn = useRef<HTMLInputElement>(null);
+  const mergeIn = useRef<HTMLInputElement>(null);
+  const [sortKey, setSortKey] = useState<SortKey>("page");
+  const [sortDir, setSortDir] = useState<1 | -1>(1);
+  const [groupBy, setGroupBy] = useState(false);
   type AutoM = { cx: number; cy: number; w: number; h: number; score: number; off?: boolean };
   const [auto, setAuto] = useState<{ ms: AutoM[]; thr: number; sample: string; rot: boolean } | null>(null);
   const autoRef = useRef<{ tpl: Img; s: number; box: Pt[]; pw: number; ph: number } | null>(null);
@@ -248,6 +269,27 @@ export function App() {
     })();
     return () => { dead = true; };
   }, [doc, page, zoom, pageSize.w, pageSize.h]);
+
+  // ---- old revision overlay (red) ----
+  useEffect(() => {
+    if (!cmp || !doc) return;
+    let dead = false;
+    (async () => {
+      const n = Math.min(cmp.doc.numPages, Math.max(1, page + cmp.off)), p = await cmp.doc.getPage(n), base = p.getViewport({ scale: 1 });
+      const px = Math.min(zoom * (window.devicePixelRatio || 1), 8192 / Math.max(base.width, base.height)), vp = p.getViewport({ scale: px });
+      const tmp = document.createElement("canvas"); tmp.width = Math.floor(vp.width); tmp.height = Math.floor(vp.height);
+      const cx = tmp.getContext("2d"); if (!cx) return;
+      cx.fillStyle = "#fff"; cx.fillRect(0, 0, tmp.width, tmp.height);
+      await p.render({ canvasContext: cx, viewport: vp }).promise;
+      const c = cmpCanvas.current; if (!c || dead) return;
+      const im = cx.getImageData(0, 0, tmp.width, tmp.height), d = im.data;
+      for (let i = 0; i < d.length; i += 4) { const lum = 0.299 * d[i] + 0.587 * d[i + 1] + 0.114 * d[i + 2]; d[i] = 225; d[i + 1] = 29; d[i + 2] = 72; d[i + 3] = 255 - lum; }
+      c.width = tmp.width; c.height = tmp.height; c.style.width = `${base.width * zoom}px`; c.style.height = `${base.height * zoom}px`;
+      c.getContext("2d")?.putImageData(im, 0, 0);
+    })().catch(() => { /* page missing in the old file */ });
+    return () => { dead = true; };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [cmp?.doc, cmp?.off, page, zoom, doc]);
 
   // keep the point under the cursor fixed while zooming
   useLayoutEffect(() => {
@@ -447,6 +489,21 @@ export function App() {
     let pts = pts0;
     if (def.ask === "auto") { setDraft([]); void runAutoCount(pts0, true); return; }
     if (MARKS.includes(def.shape)) { setDraft([]); void commitTextMark(def, pts0); return; }
+    if (def.ask === "legend") {
+      const id = newId("m"); setDraft([]);
+      apply((x) => ({ ...x, measurements: [...x.measurements, { id, layerId: activeLayer, kind: "markup", shape: "legend", page, label: "Legend", pts: [pts[0]] }] }));
+      setSelected(id); setTool("select"); say("Legend placed. It updates as you count."); return;
+    }
+    if (def.ask === "snap") {
+      setDraft([]); const bb = bboxOfPts(pts), c = canvas.current;
+      if (!c || bb.w < 4 || bb.h < 4) return;
+      const k = c.width / pageSize.w, sc = Math.min(1, 1400 / Math.max(bb.w * k, bb.h * k)), o = document.createElement("canvas");
+      o.width = Math.max(1, Math.round(bb.w * k * sc)); o.height = Math.max(1, Math.round(bb.h * k * sc));
+      o.getContext("2d")?.drawImage(c, bb.x * k, bb.y * k, bb.w * k, bb.h * k, 0, 0, o.width, o.height);
+      const m: Measurement = { id: newId("m"), layerId: activeLayer, kind: "markup", shape: "image", page, label: "Snapshot", pts: [{ x: bb.x, y: bb.y }, { x: bb.x + bb.w, y: bb.y + bb.h }], image: o.toDataURL("image/jpeg", 0.85) };
+      clip.current = { ms: [m], layers: t.layers, n: 0 }; store.set(CLIP_KEY, clip.current);
+      say("Snapshot copied. Go to any page and press Ctrl+V (or right-click > Paste here) to place it."); setTool("select"); return;
+    }
     if (def.ask === "cover") { setDraft([]); void commitCover(pts0); return; }
     if (def.ask === "image") { imgAt.current = pts[0]; imgDef.current = def; setDraft([]); imgIn.current?.click(); return; }
     const usePreset = preset && presetFits(preset, def) ? preset : null;
@@ -455,6 +512,7 @@ export function App() {
     if (usePreset) label = usePreset.label;
     else if (def.kind === "cutout") label = "Cutout";
     else if (def.kind === "count" && countLabel.current !== null) label = countLabel.current;
+    else if (def.ask === "space") label = "Space";
     else if (def.kind !== "markup" && askLabel) {
       const a = prompt(def.kind === "count" ? "What are you counting? (e.g. duplex receptacle, 2x4 troffer). Every click after this counts the same thing. Esc stops." : `Label for this ${def.label.toLowerCase()} (e.g. 2x4 troffer, 3/4 EMT, Slab)`);
       if (a === null) { setDraft([]); return; }
@@ -471,6 +529,10 @@ export function App() {
       const ft = a === null ? null : parseDistance(a);
       if (ft == null || ft <= 0) { if (a !== null) alert(`Couldn't read "${a}" as a depth. Try 4 in or 0.5'.`); setDraft([]); return; }
       depth = ft;
+    }
+    if (def.ask === "space") {
+      const a = prompt("Name this room or zone (e.g. Kitchen, Zone 2)"); if (a === null) { setDraft([]); return; }
+      label = a.trim() || "Space"; extra.isSpace = true;
     }
     if (def.ask === "stamp") {
       const d = STAMPS.find((x) => x.id === stampId);
@@ -560,6 +622,7 @@ export function App() {
     const sh = shapeOf(m);
     if (m.kind === "count") { const r = (m.symbol?.size ?? 12) / 2; return { x: m.pts[0].x - r, y: m.pts[0].y - r, w: 2 * r, h: 2 * r }; }
     if (sh === "note") return { x: m.pts[0].x, y: m.pts[0].y, w: 16 / zoom, h: 16 / zoom };
+    if (sh === "legend") { const z = legendSize(legendRows(t), 11); return { x: m.pts[0].x, y: m.pts[0].y, w: z.w, h: z.h }; }
     if (TEXTLIKE.includes(sh)) return textBoxOf(sh, m.text ?? "", m.pts[0], textSize(zoom));
     const o = outline(sh, m.pts); return bboxOfPts(o.pts.length ? o.pts : m.pts);
   };
@@ -695,7 +758,7 @@ export function App() {
         { label: "Copy", shortcut: "Ctrl+C", onClick: () => run("copy") }, { label: "Cut", shortcut: "Ctrl+X", onClick: () => run("cut") },
         { sep: true, label: "" }, { label: "Group", shortcut: "Ctrl+G", onClick: groupSel }, { label: "Ungroup", shortcut: "Ctrl+Shift+G", onClick: ungroupSel },
         { label: anyLocked ? "Lock all" : "Unlock all", shortcut: "Ctrl+L", onClick: () => toggleLock(null) },
-        { label: "Duplicate", shortcut: "Ctrl+D", onClick: () => duplicate(null) }, { label: "Array…", onClick: () => setArrayOpen(true) },
+        { label: "Duplicate", shortcut: "Ctrl+D", onClick: () => duplicate(null) }, { label: "Array…", onClick: () => setArrayOpen(true) }, { label: "Copy to other pages…", onClick: copyToPages },
         { sep: true, label: "" }, { label: "Delete", shortcut: "Del", onClick: () => removeIds(selIds) }] });
       return;
     }
@@ -720,6 +783,8 @@ export function App() {
       if (vertex != null) items.push({ label: "Delete point", disabled: lk || m.pts.length <= min, onClick: () => { const r = removePoint(m.pts, vertex, min); if (r) patchM(m.id, { pts: r }); } });
       else if (onEdge) items.push({ label: "Add point here", disabled: lk, onClick: () => patchM(m.id, { pts: insertPoint(m.pts, p, isClosed(sh)) }) });
     }
+    if (m.kind === "area") items.push({ label: m.isSpace ? "Unmark as space" : "Make this a space (room/zone)", onClick: () => patchM(m.id, { isSpace: !m.isSpace }) });
+    items.push({ label: "Copy to other pages…", onClick: () => { setSelected(m.id); setTimeout(copyToPages, 0); } });
     if (m.kind !== "count" && m.kind !== "markup") items.push({ label: m.hideLabel ? "Show measurement text" : "Hide measurement text", onClick: () => patchM(m.id, { hideLabel: !m.hideLabel }) });
     items.push({ sep: true, label: "" }, { label: "Delete", shortcut: "Del", disabled: lk, onClick: () => removeM(m) });
     setCtx({ ...at, items });
@@ -754,6 +819,12 @@ export function App() {
     if (tool === "pan") { const h = hitTest(resolve(e, true).p); if (h && shapeOf(h.m) === "link") openLink(h.m); return; }
     if (tool === "capture" || tool === "eraser") return;
     const p = resolve(e).p;
+    if (tool === "overlayalign") {
+      const q = [...draft, p];
+      if (q.length < 2) { setDraft(q); return; }
+      setCmp((c) => (c ? { ...c, dx: c.dx + (q[0].x - q[1].x), dy: c.dy + (q[0].y - q[1].y) } : c)); setDraft([]); setTool("select"); say("Aligned. Use the arrows in the Compare panel for fine tuning.");
+      return;
+    }
     const def = TOOL_BY_ID[tool];
     if (def) {
       if (def.mode === "free") return;
@@ -819,6 +890,53 @@ export function App() {
     apply((x) => ({ ...x, measurements: [...x.measurements, ...copies] }));
     setArrayOpen(false); say(`Created ${copies.length} copies.`);
   };
+  const copyToPages = () => {
+    const ms = selMs(); if (!ms.length) { say("Select something first."); return; }
+    const a = prompt(`Copy to which pages, at the same spot? (e.g. 2-5, 8, odd, all). This file has pages 1-${pageCount}.`, "all"); if (a === null) return;
+    const pages = parsePages(a, pageCount); if (!pages) { alert(`Couldn't read "${a}". Try 2-5, 8 or all.`); return; }
+    const targets = pages.filter((p) => p !== page); if (!targets.length) { say("That's only this page."); return; }
+    const cp = targets.flatMap((pg) => cloneMs(ms, 0, 0, pg));
+    apply((x) => ({ ...x, measurements: [...x.measurements, ...cp] })); say(`Copied ${ms.length} markup(s) to ${targets.length} page(s). Undo (Ctrl+Z) removes them all.`);
+  };
+  const askPages = (verb: string): number[] | null => {
+    const a = prompt(`${verb} which pages? (e.g. 2-5, 8, odd, all). This file has pages 1-${pageCount}.`); if (a === null) return null;
+    const p = parsePages(a, pageCount); if (!p) alert(`Couldn't read "${a}".`); return p;
+  };
+  const docOp = async (op: "extract" | "delete" | "rotate" | "stamp", extra?: Uint8Array) => {
+    const bytes = pdfBytes.current; if (!bytes || !doc) { say("Open a PDF first."); return; }
+    const base = fileName.replace(/\.pdf$/i, "");
+    try {
+      let pages: number[] | null = null, out: Uint8Array, suffix = "";
+      const ops = await import("./lib/pageops");
+      if (op === "extract") { pages = askPages("Extract"); if (!pages) return; setBusy(true); out = await ops.extractPages(bytes, pages); suffix = " (extract)"; }
+      else if (op === "delete") { pages = askPages("Delete"); if (!pages) return; setBusy(true); out = await ops.deletePages(bytes, pages, pageCount); suffix = " (pages removed)"; }
+      else if (op === "rotate") {
+        pages = askPages("Rotate"); if (!pages) return;
+        const d = Number(prompt("Rotate by how many degrees clockwise? (90, 180 or 270)", "90")); if (![90, 180, 270].includes(d)) { alert("Use 90, 180 or 270."); return; }
+        setBusy(true); out = await ops.rotatePages(bytes, pages, d); suffix = " (rotated)";
+      } else {
+        pages = askPages("Add header/footer to"); if (!pages) return;
+        const header = prompt("Header text (blank for none). {n} = page number, {total} = page count", "") ?? ""; const footer = prompt("Footer text (blank for none)", "Page {n} of {total}") ?? "";
+        if (!header.trim() && !footer.trim()) return; setBusy(true); out = await ops.stampPages(bytes, pages, { header: header.trim() || undefined, footer: footer.trim() || undefined }); suffix = " (numbered)";
+      }
+      void extra; downloadBlob(base + suffix + ".pdf", new Blob([out as BlobPart], { type: "application/pdf" }));
+      say("Saved a new PDF to your downloads. The open file and your markups are unchanged.");
+    } catch (err) { say("Couldn't do that: " + (err instanceof Error ? err.message : "unknown error")); }
+    setBusy(false);
+  };
+  const mergeWith = async (f: File) => {
+    const bytes = pdfBytes.current; if (!bytes) return; setBusy(true);
+    try { const ops = await import("./lib/pageops"); const out = await ops.mergePdfs(bytes, new Uint8Array(await f.arrayBuffer())); downloadBlob(fileName.replace(/\.pdf$/i, "") + " + " + f.name, new Blob([out as BlobPart], { type: "application/pdf" })); say("Merged PDF saved to your downloads."); }
+    catch { say("Couldn't merge those files."); }
+    setBusy(false);
+  };
+  const openCompare = async (f: File) => {
+    try {
+      const d = await pdfjs.getDocument({ data: await f.arrayBuffer() }).promise;
+      setCmp({ doc: d, name: f.name, off: 0, op: 0.75, dx: 0, dy: 0 }); setRightTab("compare");
+      say("The older sheet shows in red over the current one. Use Align to line them up, then look for red that isn't covered.");
+    } catch { say("Couldn't open that PDF."); }
+  };
   const exportPdf = async () => {
     if (!pdfBytes.current) { say("Open a PDF first."); return; }
     setBusy(true); say("Building the marked-up PDF…");
@@ -849,7 +967,7 @@ export function App() {
   const run = (cmd: Command) => {
     if (cmd.startsWith("tool:")) {
       const id = cmd.slice(5), d = TOOL_BY_ID[id];
-      if (id === "select" || id === "pan" || id === "calibrate" || id === "capture" || id === "eraser" || d) {
+      if (id === "select" || id === "pan" || id === "calibrate" || id === "capture" || id === "eraser" || id === "overlayalign" || d) {
         setTool(id); setDraft([]); penRef.current = null; setSnapHit(null); countLabel.current = null;
         if (id !== "select" && !(d && preset && presetFits(preset, d))) setPreset(null);
       }
@@ -878,6 +996,14 @@ export function App() {
       case "search": setLeftTab("search"); setTimeout(() => document.getElementById("search-q")?.focus(), 30); break;
       case "save": if (doc) { download("takeoff.json", JSON.stringify(t, null, 1)); say("Saved takeoff.json to your downloads. (It is also saved in this browser as you work.)"); } break;
       case "export:pdf": void exportPdf(); break;
+      case "copy:pages": copyToPages(); break;
+      case "doc:extract": void docOp("extract"); break;
+      case "doc:delete": void docOp("delete"); break;
+      case "doc:rotate": void docOp("rotate"); break;
+      case "doc:stamp": void docOp("stamp"); break;
+      case "doc:merge": mergeIn.current?.click(); break;
+      case "compare:open": cmpIn.current?.click(); break;
+      case "compare:close": setCmp(null); break;
       case "snap:toggle": setSnapOn(!snapOn); say(snapOn ? "Snap off. Click exactly where you want points." : "Snap on: ends, centers, midpoints and edges."); break;
       case "duplicate": duplicate(null); break;
       case "lock:toggle": toggleLock(null); break;
@@ -1027,6 +1153,7 @@ export function App() {
       { label: "Open PDF…", onClick: () => fileIn.current?.click() }, { label: "Load takeoff…", onClick: () => loadIn.current?.click() }, { sep: true, label: "" },
       { label: "Save takeoff (JSON)", shortcut: "Ctrl+S", disabled: !doc, onClick: () => run("save") },
       { label: "Export PDF with markups…", disabled: !doc || busy, onClick: () => run("export:pdf") },
+      { label: "Compare with an older revision…", disabled: !doc, onClick: () => run("compare:open") }, { label: "Close comparison", disabled: !cmp, onClick: () => run("compare:close") },
       { label: "Export summary (CSV)", disabled: !doc, onClick: () => download("takeoff-summary.csv", summaryCsv(t)) },
       { label: "Export every markup (CSV)", disabled: !doc, onClick: () => download("takeoff-detail.csv", toCsv(t)) } ] },
     { label: "Edit", items: [
@@ -1035,7 +1162,7 @@ export function App() {
       { label: "Paste", shortcut: "Ctrl+V", onClick: () => run("paste") }, { label: "Select all on this page", shortcut: "Ctrl+A", disabled: !doc, onClick: () => run("select:all") },
       { label: "Group", shortcut: "Ctrl+G", disabled: selIds.length < 2, onClick: () => run("group") }, { label: "Ungroup", shortcut: "Ctrl+Shift+G", disabled: !selected, onClick: () => run("ungroup") },
       { sep: true, label: "" }, { label: "Find text…", shortcut: "Ctrl+F", disabled: !doc, onClick: () => run("search") }, { label: "Eraser", shortcut: "Shift+E", checked: tool === "eraser", onClick: () => run("tool:eraser") },
-      { sep: true, label: "" }, { label: "Duplicate selected", shortcut: "Ctrl+D", disabled: !selected, onClick: () => run("duplicate") },
+      { sep: true, label: "" }, { label: "Copy to other pages…", disabled: !selected, onClick: () => run("copy:pages") }, { label: "Duplicate selected", shortcut: "Ctrl+D", disabled: !selected, onClick: () => run("duplicate") },
       { label: "Array selected…", disabled: !selected, onClick: () => run("array") },
       { label: "Lock / unlock selected", shortcut: "Ctrl+L", disabled: !selected, onClick: () => run("lock:toggle") }, { label: "Delete selected", shortcut: "Del", disabled: !selected, onClick: () => run("delete") } ] },
     { label: "View", items: [
@@ -1045,6 +1172,10 @@ export function App() {
       { label: "Snap to endpoints", checked: snapOpts.end, onClick: () => setSnapOpts({ ...snapOpts, end: !snapOpts.end }) }, { label: "Snap to centers", checked: snapOpts.center, onClick: () => setSnapOpts({ ...snapOpts, center: !snapOpts.center }) },
       { label: "Snap to midpoints", checked: snapOpts.mid, onClick: () => setSnapOpts({ ...snapOpts, mid: !snapOpts.mid }) }, { label: "Snap to edges", checked: snapOpts.edge, onClick: () => setSnapOpts({ ...snapOpts, edge: !snapOpts.edge }) },
       { sep: true, label: "" }, { label: "Left panel", checked: leftTab !== null, onClick: () => setLeftTab(leftTab ? null : "pages") }, { label: "Right panel", checked: rightTab !== null, onClick: () => setRightTab(rightTab ? null : "props") } ] },
+    { label: "Document", items: [
+      { label: "Extract pages to a new PDF…", disabled: !doc || busy, onClick: () => run("doc:extract") }, { label: "Delete pages (saves a new PDF)…", disabled: !doc || busy, onClick: () => run("doc:delete") },
+      { label: "Rotate pages (saves a new PDF)…", disabled: !doc || busy, onClick: () => run("doc:rotate") }, { label: "Merge another PDF onto the end…", disabled: !doc || busy, onClick: () => run("doc:merge") },
+      { label: "Add header / footer / page numbers…", disabled: !doc || busy, onClick: () => run("doc:stamp") } ] },
     { label: "Page", items: [
       { label: "Next page", shortcut: "Ctrl+→", onClick: () => run("page:next") }, { label: "Previous page", shortcut: "Ctrl+←", onClick: () => run("page:prev") },
       { label: "First page", shortcut: "Home", onClick: () => run("page:first") }, { label: "Last page", shortcut: "End", onClick: () => run("page:last") } ] },
@@ -1059,7 +1190,7 @@ export function App() {
       { sep: true, label: "" }, { label: "Show measurement text on the drawing", checked: showLabels, onClick: () => setShowLabels(!showLabels) },
       { label: "Ask for a label after each measurement", checked: askLabel, onClick: () => setAskLabel(!askLabel) } ] },
     { label: "Tools", items: [
-      { label: "Tool Chest", onClick: () => setLeftTab("chest") }, { label: "Layers", onClick: () => setLeftTab("layers") }, { label: "Bookmarks", onClick: () => setLeftTab("bookmarks") }, { label: "Make links from printed web addresses", disabled: !doc, onClick: () => void makeUrlLinks() }, { label: "Page thumbnails", onClick: () => setLeftTab("pages") }, { label: "All markups", onClick: () => setRightTab("markups") } ] },
+      { label: "Tool Chest", onClick: () => setLeftTab("chest") }, { label: "Layers", onClick: () => setLeftTab("layers") }, { label: "Bookmarks", onClick: () => setLeftTab("bookmarks") }, { label: "Spaces (per room totals)", onClick: () => setRightTab("spaces") }, { label: "Compare revisions", onClick: () => setRightTab("compare") }, { label: "Make links from printed web addresses", disabled: !doc, onClick: () => void makeUrlLinks() }, { label: "Page thumbnails", onClick: () => setLeftTab("pages") }, { label: "All markups", onClick: () => setRightTab("markups") } ] },
     { label: "Help", items: [{ label: "Search every command", shortcut: "Ctrl+K", onClick: () => run("palette") }, { label: "Keyboard shortcuts", onClick: () => setRightTab("keys") }] },
   ];
 
@@ -1076,6 +1207,10 @@ export function App() {
     { id: "gr", label: "Group selected", hint: "Ctrl+G", run: () => run("group") }, { id: "ug", label: "Ungroup selected", hint: "Ctrl+Shift+G", run: () => run("ungroup") },
     { id: "find", label: "Find text in the sheets", hint: "Ctrl+F", run: () => run("search") }, { id: "bm", label: "Bookmark this page", run: addBookmark }, { id: "ul", label: "Make links from printed web addresses", run: () => void makeUrlLinks() },
     { id: "pdf", label: "Export PDF with markups", run: () => run("export:pdf") },
+    { id: "cp", label: "Copy selected markups to other pages (same spot)", run: () => run("copy:pages") }, { id: "cmp", label: "Compare with an older revision", run: () => run("compare:open") },
+    { id: "ext", label: "Extract pages to a new PDF", run: () => run("doc:extract") }, { id: "dpg", label: "Delete pages (new PDF)", run: () => run("doc:delete") }, { id: "rot", label: "Rotate pages (new PDF)", run: () => run("doc:rotate") },
+    { id: "mrg", label: "Merge another PDF", run: () => run("doc:merge") }, { id: "hdr", label: "Add header / footer / page numbers", run: () => run("doc:stamp") },
+    { id: "spc", label: "Show Spaces totals", run: () => setRightTab("spaces") }, { id: "cost", label: "Enter unit costs (Measurements panel)", run: () => setRightTab("qty") },
     { id: "arr", label: "Array the selected markup", run: () => run("array") }, { id: "dup", label: "Duplicate selected", hint: "Ctrl+D", run: () => run("duplicate") },
     { id: "lock", label: "Lock or unlock selected", hint: "Ctrl+L", run: () => run("lock:toggle") }, { id: "del", label: "Delete selected", hint: "Del", run: () => run("delete") },
     { id: "snap", label: "Snap on / off", hint: "S", run: () => run("snap:toggle") }, { id: "wheel", label: "Mouse wheel: zoom or change pages", hint: "W", run: () => run("wheel:toggle") },
@@ -1104,6 +1239,9 @@ export function App() {
       {sel.groupId && <p className="muted" style={{ margin: "4px 0" }}>Part of a group. <button className="btn" onClick={ungroupSel}>Ungroup</button></p>}
       {sel.kind === "volume" && field("Depth (ft)", <input type="number" min={0} step={0.05} value={sel.depth ?? ""} onChange={(e) => patchSel({ depth: Number(e.target.value) > 0 ? Number(e.target.value) : undefined })} />)}
       {sel.kind !== "markup" && sel.kind !== "count" && <label style={{ display: "block", margin: "4px 0" }}><input type="checkbox" checked={!sel.hideLabel} onChange={() => patchSel({ hideLabel: !sel.hideLabel })} /> Show measurement text</label>}
+      {sel.kind !== "markup" && field("Status", <select value={sel.status ?? ""} onChange={(e) => patchSel({ status: e.target.value || undefined })}><option value="">(none)</option>{STATUSES.map((x) => <option key={x}>{x}</option>)}</select>)}
+      {field("Comment", <input value={sel.comment ?? ""} placeholder="note for the list" onChange={(e) => patchSel({ comment: e.target.value || undefined })} />)}
+      {sel.kind === "area" && <label style={{ display: "block", margin: "4px 0" }}><input type="checkbox" checked={!!sel.isSpace} onChange={() => patchSel({ isSpace: !sel.isSpace })} /> This is a room / zone (Space)</label>}
       {sel.symbol && field("Size", <input type="number" min={4} max={80} value={sel.symbol.size} onChange={(e) => patchSel({ symbol: { ...sel.symbol!, size: Number(e.target.value) } })} />)}
       {sel.kind !== "markup" && field("Quantity", <b>{(() => { const q = quantity(sel, scaleFor(t, sel)); return q == null ? (sel.kind === "volume" && sel.depth == null ? "Needs depth" : "Needs calibration") : `${q.toFixed(2)} ${UNITS[sel.kind]}`; })()}</b>)}
       {field("Page", <span>{sel.page}</span>)}
@@ -1126,6 +1264,7 @@ export function App() {
         <button className="btn" onClick={() => setArrayOpen(true)}><Icon name="array" size={16} />Array…</button>
         <button className="btn" onClick={() => removeIds(selIds)}><Icon name="trash" size={16} />Delete</button>
       </div>
+      {field("Status", <select value="" onChange={(e) => { if (e.target.value) patchMany(selIds, { status: e.target.value === "-" ? undefined : e.target.value }); }}><option value="">Set all to…</option><option value="-">(none)</option>{STATUSES.map((x) => <option key={x}>{x}</option>)}</select>)}
       {field("Layer", <select value="" onChange={(e) => { if (e.target.value) patchMany(selIds, { layerId: e.target.value }); }}><option value="">Move all to…</option>{t.layers.map((l) => <option key={l.id} value={l.id}>{l.name}</option>)}</select>)}
       {field("Color", <input type="color" value="#2563eb" onChange={(e) => patchMany(selIds, { color: e.target.value })} />)}
       {field("Line", <input type="number" min={1} max={12} placeholder="all" onChange={(e) => { if (Number(e.target.value) > 0) patchMany(selIds, { lineWidth: Number(e.target.value) }); }} />)}
@@ -1161,8 +1300,11 @@ export function App() {
       <p className="muted" style={{ margin: 0 }}>Standard scales assume the sheet prints full size. Calibrating against a known dimension is the safest check.</p>
       <h4 className="sec">Quantities</h4>
       {summary.length === 0 ? <p className="muted">Nothing measured yet.</p> :
-        <table className="qty"><thead><tr><th>Layer</th><th>Item</th><th>#</th><th>Qty</th></tr></thead>
-          <tbody>{summary.map((r, i) => <tr key={i}><td>{r.layer}</td><td>{r.label}</td><td>{r.items}</td><td>{r.qty == null ? "uncalibrated" : `${r.qty.toFixed(1)} ${r.unit}`}</td></tr>)}</tbody></table>}
+        <table className="qty"><thead><tr><th>Layer</th><th>Item</th><th>#</th><th>Qty</th><th>Unit $</th><th>Total $</th></tr></thead>
+          <tbody>{summary.map((r, i) => { const e = extended(t, r); return <tr key={i}><td>{r.layer}</td><td>{r.label}</td><td>{r.items}</td><td>{r.qty == null ? "uncalibrated" : `${r.qty.toFixed(1)} ${r.unit}`}</td>
+            <td><CostInput value={t.costs?.[costKey(r.label)]} onCommit={(v) => apply((x) => { const c = { ...(x.costs ?? {}) }; if (v == null) delete c[costKey(r.label)]; else c[costKey(r.label)] = v; return { ...x, costs: c }; })} /></td>
+            <td>{e == null ? "" : e.toFixed(2)}</td></tr>; })}
+            {t.costs && Object.keys(t.costs).length > 0 && <tr><td colSpan={5}><b>Total</b></td><td><b>{summary.reduce((n, r) => n + (extended(t, r) ?? 0), 0).toFixed(2)}</b></td></tr>}</tbody></table>}
       <div style={{ marginTop: 8 }}><button className="btn" disabled={!doc} onClick={() => download("takeoff-summary.csv", summaryCsv(t))}><Icon name="download" size={16} />Export CSV</button></div>
     </>
   );
@@ -1194,19 +1336,64 @@ export function App() {
     </>
   );
   const [filter, setFilter] = useState("");
+  const rowsAll = useMemo(() => markupRows(t), [t]);
+  const fl = filter.toLowerCase();
+  const shownRows = sortRows(fl ? rowsAll.filter((r) => `${r.label} ${r.comment} ${r.status} ${r.layer}`.toLowerCase().includes(fl)) : rowsAll, sortKey, sortDir);
+  const sortBy = (k: SortKey) => { if (k === sortKey) setSortDir(sortDir === 1 ? -1 : 1); else { setSortKey(k); setSortDir(1); } };
+  const th = (k: SortKey, text: string) => <th style={{ cursor: "pointer", userSelect: "none" }} onClick={() => sortBy(k)}>{text}{sortKey === k ? (sortDir === 1 ? " ▲" : " ▼") : ""}</th>;
   const markupsPanel = (
     <>
-      <input className="tb-input" style={{ width: "100%", marginBottom: 6, textAlign: "left", padding: "0 6px" }} placeholder="Filter markups…" value={filter} onChange={(e) => setFilter(e.target.value)} />
-      {t.measurements.filter((m) => m.label.toLowerCase().includes(filter.toLowerCase())).map((m) => {
-        const q = quantity(m, scaleFor(t, m));
-        return (
-          <div key={m.id} className={"row" + (selIds.includes(m.id) ? " on" : "")} style={{ cursor: "pointer" }} onClick={() => { goPage(m.page); setTimeout(() => setSelected(m.id), 0); setTool("select"); }}>
-            <span style={{ color: colorOf(m) }}><Icon name={(TOOLS.find((x) => x.kind === m.kind && x.shape === shapeOf(m))?.icon ?? "polylength") as IconName} size={16} /></span>
-            <span className="grow">{m.label}</span>{m.locked && <Icon name="lock" size={14} />}<span className="muted">p{m.page}</span>
-            <span>{q == null ? "—" : q.toFixed(1)}</span>
-          </div>);
-      })}
+      <input className="tb-input" style={{ width: "100%", marginBottom: 6, textAlign: "left", padding: "0 6px" }} placeholder="Filter by name, comment, status, layer…" value={filter} onChange={(e) => setFilter(e.target.value)} />
+      <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap", marginBottom: 6 }}>
+        <label><input type="checkbox" checked={groupBy} onChange={(e) => setGroupBy(e.target.checked)} /> group by item</label>
+        <button className="btn" disabled={!shownRows.length} onClick={() => download("markups-list.csv", rowsCsv(shownRows))}><Icon name="download" size={16} />CSV</button>
+      </div>
+      {groupBy ? (
+        <table className="qty"><thead><tr><th>Item</th><th>#</th><th>Qty</th><th>Pages</th></tr></thead>
+          <tbody>{groupRows(shownRows.filter((r) => r.kind !== "markup")).map((g) => <tr key={g.kind + g.label}><td>{g.label}</td><td>{g.items}</td><td>{g.qty == null ? "—" : `${g.qty.toFixed(1)} ${g.unit}`}</td><td>{g.pages.slice(0, 6).join(", ")}{g.pages.length > 6 ? "…" : ""}</td></tr>)}</tbody></table>
+      ) : (
+        <table className="qty"><thead><tr>{th("label", "Name")}{th("page", "Pg")}{th("qty", "Qty")}{th("status", "Status")}</tr></thead>
+          <tbody>{shownRows.map((r) => <tr key={r.id} style={{ cursor: "pointer", background: selIds.includes(r.id) ? "#dbeafe" : undefined }} title={r.comment || r.layer}
+            onClick={() => { const pg = r.page; goPage(pg); setTimeout(() => setSelected(r.id), 0); setTool("select"); }}>
+            <td>{r.locked ? "🔒 " : ""}{r.label}</td><td>{r.page}</td><td>{r.qty == null ? "—" : r.qty.toFixed(1)}</td><td>{r.status}</td></tr>)}</tbody></table>
+      )}
       {t.measurements.length === 0 && <p className="muted">No markups yet.</p>}
+      <p className="muted">Click a heading to sort. Set status and comments in Properties.</p>
+    </>
+  );
+  const spaceRows = useMemo(() => spaceReport(t), [t]);
+  const spacesPanel = (
+    <>
+      <div style={{ display: "flex", gap: 6, flexWrap: "wrap", marginBottom: 8 }}>
+        <button className="btn" onClick={() => run("tool:space")}><Icon name="space" size={16} />Draw a space</button>
+        <button className="btn" disabled={!spaceRows.length} onClick={() => download("spaces.csv", spacesCsv(t))}><Icon name="download" size={16} />CSV</button>
+      </div>
+      {spaceRows.length === 0 ? <p className="muted">No spaces yet. Draw a Space around a room or zone (or right-click an area and choose "Make this a space"). Counts, lengths and areas inside it are then totaled per room.</p> :
+        <table className="qty"><thead><tr><th>Space</th><th>Item</th><th>Qty</th></tr></thead>
+          <tbody>{spaceRows.map((r, i) => <tr key={i}><td>{r.space}{r.page !== 1 ? ` (p${r.page})` : ""}</td><td>{r.label}</td><td>{r.qty == null ? "uncal." : `${r.qty.toFixed(1)} ${r.unit}`}</td></tr>)}</tbody></table>}
+      <p className="muted">An item belongs to the smallest space that contains its center. Long runs that cross rooms count in one room.</p>
+    </>
+  );
+  const comparePanel = !cmp ? (
+    <>
+      <p className="muted" style={{ marginTop: 0 }}>Compare two revisions: the older sheet is drawn in red over the current one, so anything that changed shows up.</p>
+      <button className="btn" disabled={!doc} onClick={() => run("compare:open")}><Icon name="compare" size={16} />Pick the older PDF…</button>
+    </>
+  ) : (
+    <>
+      <p style={{ marginTop: 0 }}>Old revision: <b>{cmp.name}</b></p>
+      {field("Old page offset", <input type="number" value={cmp.off} onChange={(e) => setCmp({ ...cmp, off: Number(e.target.value) || 0 })} title="0 = same page number. +1 if the old file's page is one later." />)}
+      {field("Strength", <input type="range" min={0.2} max={1} step={0.05} value={cmp.op} onChange={(e) => setCmp({ ...cmp, op: Number(e.target.value) })} />)}
+      <div style={{ display: "flex", gap: 6, flexWrap: "wrap", margin: "8px 0" }}>
+        <button className="btn" onClick={() => run("tool:overlayalign")}>Align by 2 points</button>
+        <button className="btn" onClick={() => setCmp({ ...cmp, dx: 0, dy: 0 })}>Reset alignment</button>
+      </div>
+      <div style={{ display: "flex", gap: 4, marginBottom: 8 }}>
+        <button className="btn" onClick={() => setCmp({ ...cmp, dx: cmp.dx - 1 })}>◀</button><button className="btn" onClick={() => setCmp({ ...cmp, dx: cmp.dx + 1 })}>▶</button>
+        <button className="btn" onClick={() => setCmp({ ...cmp, dy: cmp.dy - 1 })}>▲</button><button className="btn" onClick={() => setCmp({ ...cmp, dy: cmp.dy + 1 })}>▼</button>
+      </div>
+      <button className="btn" onClick={() => setCmp(null)}>Close comparison</button>
+      <p className="muted">For Align: click a feature on the current sheet (dark), then the same feature on the red old sheet. Sheets must be the same size and scale.</p>
     </>
   );
 
@@ -1250,7 +1437,7 @@ export function App() {
     </>
   );
   const leftTitle = leftTab === "pages" ? "Pages" : leftTab === "chest" ? "Tool Chest" : leftTab === "search" ? "Search" : leftTab === "bookmarks" ? "Bookmarks" : "Layers";
-  const rightTitle = rightTab === "props" ? "Properties" : rightTab === "qty" ? "Measurements" : rightTab === "markups" ? "Markups list" : rightTab === "counts" ? "Counts" : "Keyboard shortcuts";
+  const rightTitle = rightTab === "props" ? "Properties" : rightTab === "qty" ? "Measurements" : rightTab === "markups" ? "Markups list" : rightTab === "counts" ? "Counts" : rightTab === "spaces" ? "Spaces" : rightTab === "compare" ? "Compare revisions" : "Keyboard shortcuts";
 
   return (
     <div className="app">
@@ -1294,6 +1481,8 @@ export function App() {
         </div>
         <input ref={fileIn} type="file" accept="application/pdf" style={{ display: "none" }} onChange={(e) => { const f = e.target.files?.[0]; e.target.value = ""; if (f) void openDoc(f); }} />
         <input ref={imgIn} type="file" accept="image/png,image/jpeg,image/webp,image/gif" style={{ display: "none" }} onChange={(e) => { const f = e.target.files?.[0]; e.target.value = ""; if (f) void placeImage(f); }} />
+        <input ref={cmpIn} type="file" accept="application/pdf" style={{ display: "none" }} onChange={(e) => { const f = e.target.files?.[0]; e.target.value = ""; if (f) void openCompare(f); }} />
+        <input ref={mergeIn} type="file" accept="application/pdf" style={{ display: "none" }} onChange={(e) => { const f = e.target.files?.[0]; e.target.value = ""; if (f) void mergeWith(f); }} />
         <input ref={loadIn} type="file" accept="application/json,.json" style={{ display: "none" }} onChange={(e) => { const f = e.target.files?.[0]; e.target.value = ""; if (f) void loadTakeoff(f); }} />
       </div>
       <div className="toolbar two">
@@ -1354,6 +1543,7 @@ export function App() {
                 <p className="muted">Scroll to zoom. Press <b>W</b> to make the wheel change pages. Press the wheel and drag (or hold Space and drag) to move the page.</p></div>}
               <div style={{ position: "relative", width: pageSize.w * zoom, height: pageSize.h * zoom, margin: 14, display: doc ? "block" : "none", boxShadow: "0 2px 10px #0005", background: "#fff" }}>
                 <canvas ref={canvas} style={{ width: pageSize.w * zoom, height: pageSize.h * zoom, display: "block" }} />
+                {cmp && <canvas ref={cmpCanvas} style={{ position: "absolute", left: 0, top: 0, pointerEvents: "none", mixBlendMode: "multiply", opacity: cmp.op, transform: `translate(${cmp.dx * zoom}px, ${cmp.dy * zoom}px)` }} />}
                 <svg ref={svg} width={pageSize.w * zoom} height={pageSize.h * zoom} viewBox={`0 0 ${pageSize.w} ${pageSize.h}`}
                   style={{ position: "absolute", inset: 0 }} onClick={onSvgClick} onDoubleClick={(e) => { if (tool === "select") { const h = hitTest(resolve(e, true).p); if (h && shapeOf(h.m) === "link") openLink(h.m); return; } if (tool === "polylength" || tool === "area") finish(); }} onContextMenu={openCtx}
                   onPointerMove={(e) => {
@@ -1382,6 +1572,15 @@ export function App() {
                     const down = (e: React.PointerEvent) => startDrag(e, m, null);
                     const stop = (e: React.MouseEvent) => { if (tool === "select") e.stopPropagation(); };
                     const gs = { pointerEvents: hit, cursor: tool === "select" && !m.locked ? "move" : undefined } as React.CSSProperties;
+                    if (sh === "legend") {
+                      const rows = legendRows(t), z = legendSize(rows, 11), p0 = mp[0];
+                      return <g key={m.id} onPointerDown={down} onClick={stop} style={gs}>
+                        <rect x={p0.x} y={p0.y} width={z.w} height={z.h} fill="#fff" stroke={isSel ? "#000" : "#111"} strokeWidth={isSel ? 2 : 1} vectorEffect="non-scaling-stroke" />
+                        <text x={p0.x + 9} y={p0.y + z.rowH * 0.8} fontSize={11} fontWeight={700} fill="#111" fontFamily="Arial, sans-serif">Legend</text>
+                        {rows.length === 0 && <text x={p0.x + 9} y={p0.y + z.rowH * 1.8} fontSize={9} fill="#666" fontFamily="Arial, sans-serif">count something to fill this in</text>}
+                        {rows.map((r, i) => { const cy = p0.y + z.rowH * (i + 1) + z.rowH * 0.55; return <g key={i}><circle cx={p0.x + 13} cy={cy} r={4.4} fill="none" stroke={r.color} strokeWidth={1.5} vectorEffect="non-scaling-stroke" /><text x={p0.x + 24} y={cy + 4} fontSize={11} fill="#111" fontFamily="Arial, sans-serif">{r.label}</text><text x={p0.x + z.w - 26} y={cy + 4} fontSize={11} fontWeight={700} fill="#111" fontFamily="Arial, sans-serif">{r.total}</text></g>; })}
+                      </g>;
+                    }
                     if (m.kind === "count") {
                       const p = mp[0];
                       return <g key={m.id} onPointerDown={down} onClick={stop} style={gs}>{m.symbol ? <SymbolMark symbol={m.symbol} cx={p.x} cy={p.y} color={c} selected={isSel} /> : <circle cx={p.x} cy={p.y} r={6} fill={c} stroke={isSel ? "#000" : "none"} strokeWidth={2} vectorEffect="non-scaling-stroke" />}
@@ -1393,6 +1592,7 @@ export function App() {
                       <g key={m.id} onPointerDown={down} onClick={stop} style={gs}>
                         <ShapeView kind={m.kind} shape={sh} pts={mp} color={c} lw={m.lineWidth ?? 2} zoom={zoom} text={m.text} image={m.image} selected={isSel} />
                         {lab && an && <MeasureLabel text={lab} pt={an.pt} angle={an.angle} onLine={an.onLine} zoom={zoom} color={c} />}
+                        {m.isSpace && (() => { const cc = centroid(outline(sh, mp).pts); return <text x={cc.x} y={cc.y - textSize(zoom) * 1.1} textAnchor="middle" fontSize={textSize(zoom) * 1.1} fontWeight={800} fill={c} stroke="#fff" strokeWidth={3} paintOrder="stroke" fontFamily="Arial, sans-serif" pointerEvents="none">{m.label}</text>; })()}
                         {isSel && selIds.length === 1 && !m.locked && !TEXTLIKE.includes(sh) && !MARKS.includes(sh) && sh !== "whiteout" && mp.map((p, i) => <circle key={i} cx={p.x} cy={p.y} r={5 / zoom} fill="#fff" stroke="#000" vectorEffect="non-scaling-stroke" style={{ cursor: "crosshair" }} onPointerDown={(e) => startDrag(e, m, i)} />)}
                       </g>);
                   })}
@@ -1433,12 +1633,16 @@ export function App() {
               {rightTab === "qty" && qtyPanel}
               {rightTab === "markups" && markupsPanel}
               {rightTab === "counts" && countsPanel}
+              {rightTab === "spaces" && spacesPanel}
+              {rightTab === "compare" && comparePanel}
               {rightTab === "keys" && <table><tbody>{SHORTCUT_HELP.map(([k, d]) => <tr key={k}><td style={{ paddingRight: 10, whiteSpace: "nowrap", verticalAlign: "top" }}><b>{k}</b></td><td>{d}</td></tr>)}</tbody></table>}
             </div>
           </div>)}
         <div className="rail right">
           {rail("props", "Properties", rightTab === "props", () => toggle(rightTab, "props", setRightTab))}
           {rail("calc", "Measurements and scale", rightTab === "qty", () => toggle(rightTab, "qty", setRightTab))}
+          {rail("space", "Spaces (per room totals)", rightTab === "spaces", () => toggle(rightTab, "spaces", setRightTab))}
+          {rail("compare", "Compare revisions", rightTab === "compare", () => toggle(rightTab, "compare", setRightTab))}
           {rail("count", "Counts", rightTab === "counts", () => toggle(rightTab, "counts", setRightTab))}
           {rail("list", "Markups list", rightTab === "markups", () => toggle(rightTab, "markups", setRightTab))}
           {rail("keys", "Keyboard shortcuts", rightTab === "keys", () => toggle(rightTab, "keys", setRightTab))}

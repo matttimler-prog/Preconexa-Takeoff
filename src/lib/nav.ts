@@ -46,7 +46,7 @@ export type Command =
   | "page:next" | "page:prev" | "page:first" | "page:last"
   | "zoom:in" | "zoom:out" | "zoom:fit" | "wheel:toggle"
   | "undo" | "redo" | "delete" | "finish" | "cancel" | "backspace-point" | "snap:toggle" | "duplicate" | "lock:toggle" | "array" | "palette"
-  | "copy" | "cut" | "paste" | "select:all" | "group" | "ungroup" | "search" | "save" | "export:pdf";
+  | "copy:pages" | "doc:extract" | "doc:delete" | "doc:rotate" | "doc:merge" | "doc:stamp" | "compare:open" | "compare:close" | "copy" | "cut" | "paste" | "select:all" | "group" | "ungroup" | "search" | "save" | "export:pdf";
 
 export type KeyEvt = { key: string; code?: string; shiftKey: boolean; altKey: boolean; ctrlKey: boolean; metaKey: boolean };
 

@@ -57,3 +57,9 @@ Missing or partial, browser-feasible, most praised first.
 12. **OCR for scans** with tesseract.js on demand per page, so scale detection and search work on scanned sets.
 
 Not on the list because they need a server: Studio-style live sessions, Procore integration, certified signatures. Revisit when the Preconexa API link exists.
+
+## Status after round 5
+Built from the list above: Visual Search for count (Auto count, with review and confidence), Markups List upgrade (sort, group, status, comment, CSV), custom cost column with live totals (Measurements panel), Spaces (per-room totals, CSV), live Legend, Snapshot (copy a region, paste on any page), copy markups to the same spot on other pages (also the way to stamp all sheets), page operations (extract, delete, rotate, merge, header/footer/page numbers; each saves a new PDF), and Compare revisions (old sheet in red, align by two points).
+
+Not built: touch/PWA/offline tuning, OCR for scans, forms and digital signatures, live Studio-style sessions, Procore link (needs server).
+Caveats: none of these have been tried on real sheets yet. Page operations and compare depend on pdf-lib and PDF rendering in the browser; check them on one of your files first.

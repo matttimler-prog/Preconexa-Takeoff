@@ -1,6 +1,7 @@
 import type { Pt } from "./measure";
 import type { Measurement, Takeoff } from "./takeoff";
 import { measureLabel, scaleFor, shapeOf } from "./takeoff";
+import { legendRows, legendSize } from "./legend";
 import { angleArc, arrowHead, circleOf, cloudPath, labelAnchor, outline, textBox } from "./shapes";
 
 /** Neutral drawing instructions in page units (y down, origin top-left). The PDF exporter maps these onto pdf-lib calls. */
@@ -29,7 +30,7 @@ export function flattenPage(t: Takeoff, page: number, opts?: { labels?: boolean 
     const layer = t.layers.find((l) => l.id === m.layerId);
     if (!layer?.visible) continue;
     const color = m.color ?? layer.color ?? DEFAULT_COLOR;
-    drawMarkup(ops, m, color);
+    drawMarkup(ops, m, color, t);
     if (showLabels && !m.hideLabel && m.kind !== "count" && m.kind !== "markup") {
       const text = measureLabel(m, scaleFor(t, m));
       const an = text ? labelAnchor(shapeOf(m), m.pts) : null;
@@ -43,7 +44,7 @@ export function flattenPage(t: Takeoff, page: number, opts?: { labels?: boolean 
   return ops;
 }
 
-function drawMarkup(ops: Op[], m: Measurement, color: string): void {
+function drawMarkup(ops: Op[], m: Measurement, color: string, t: Takeoff): void {
   const sh = shapeOf(m), pts = m.pts, lw = m.lineWidth ?? 2, p0 = pts[0];
   const o = outline(sh, pts);
   const filled = m.kind === "area" || m.kind === "volume";
@@ -83,6 +84,18 @@ function drawMarkup(ops: Op[], m: Measurement, color: string): void {
     case "highlight":
       if (pts.length >= 2) ops.push({ t: "poly", pts: o.pts, closed: true, fill: "#facc15", opacity: 0.45, width: 0 });
       return;
+    case "legend": {
+      const rows2 = legendRows(t), sz = legendSize(rows2, FS), x = p0.x, y = p0.y;
+      ops.push({ t: "box", x, y, w: sz.w, h: sz.h, stroke: "#111111", width: 1, fill: "#ffffff", opacity: 1 });
+      ops.push({ t: "text", x: x + FS * 0.8, y: y + sz.rowH * 0.8, size: FS, text: "Legend", color: "#111111", angle: 0, align: "left", bold: true });
+      rows2.forEach((r, i) => {
+        const cy = y + sz.rowH * (i + 1) + sz.rowH * 0.55;
+        ops.push({ t: "ellipse", cx: x + FS * 1.2, cy, rx: FS * 0.4, ry: FS * 0.4, stroke: r.color, width: 1.5 });
+        ops.push({ t: "text", x: x + FS * 2.2, y: cy + FS * 0.35, size: FS, text: r.label, color: "#111111", angle: 0, align: "left" });
+        ops.push({ t: "text", x: x + sz.w - FS * 2.4, y: cy + FS * 0.35, size: FS, text: String(r.total), color: "#111111", angle: 0, align: "left", bold: true });
+      });
+      return;
+    }
     case "whiteout":
       if (pts.length >= 2) ops.push({ t: "poly", pts: o.pts, closed: true, fill: "#ffffff", opacity: 1, width: 0 });
       return;

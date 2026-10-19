@@ -21,10 +21,14 @@ export type Measurement = {
   image?: string;
   /** Markups with the same groupId select, move and lock together. */
   groupId?: string;
+  /** Workflow status and a note, shown in the Markups list. */
+  status?: string; comment?: string;
+  /** An area marked as a room or zone: items inside it are reported per space. */
+  isSpace?: boolean;
   /** For viewport markups: the scale (feet per page unit) that applies inside the box. */
   vpScale?: number;
 };
-export type Takeoff = { layers: Layer[]; measurements: Measurement[]; feetPerUnit: Record<number, number>; scaleNote?: Record<number, string>; bookmarks?: { id: string; name: string; page: number }[] };
+export type Takeoff = { layers: Layer[]; measurements: Measurement[]; feetPerUnit: Record<number, number>; scaleNote?: Record<number, string>; bookmarks?: { id: string; name: string; page: number }[]; costs?: Record<string, number> };
 
 /**
  * Quantity in the kind's unit (LF, SF, CF, EA, degrees). Null if the page is not calibrated.
@@ -145,9 +149,18 @@ export function setScale(t: Takeoff, pages: number[], feetPerUnit: number, note?
   return { ...t, feetPerUnit: next, scaleNote: notes };
 }
 
+/** Cost key for a label: costs are entered once per item name, whatever layer it is on. */
+export const costKey = (label: string) => label.trim().toLowerCase();
+export const extended = (t: Takeoff, r: Summary): number | null => { const c = t.costs?.[costKey(r.label)]; return c == null || r.qty == null ? null : c * r.qty; };
+
 export function summaryCsv(t: Takeoff): string {
-  const esc = (s: string) => `"${s.replace(/"/g, '""')}"`;
-  const lines = ["layer,type,label,items,quantity,unit"];
-  for (const r of summarize(t)) lines.push([esc(r.layer), r.kind, esc(r.label), r.items, r.qty == null ? "UNCALIBRATED" : r.qty.toFixed(2), r.unit].join(","));
+  const esc = (s: string) => `"${s.replace(/"/g, '""')}"`, costed = !!t.costs && Object.keys(t.costs).length > 0;
+  const lines = ["layer,type,label,items,quantity,unit" + (costed ? ",unit_cost,extended_cost" : "")];
+  let total = 0;
+  for (const r of summarize(t)) {
+    const c = t.costs?.[costKey(r.label)], e = extended(t, r); if (e != null) total += e;
+    lines.push([esc(r.layer), r.kind, esc(r.label), r.items, r.qty == null ? "UNCALIBRATED" : r.qty.toFixed(2), r.unit, ...(costed ? [c == null ? "" : c.toFixed(2), e == null ? "" : e.toFixed(2)] : [])].join(","));
+  }
+  if (costed) lines.push(["", "", esc("TOTAL"), "", "", "", "", total.toFixed(2)].join(","));
   return lines.join("\n");
 }

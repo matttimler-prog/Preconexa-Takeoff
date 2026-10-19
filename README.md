@@ -49,3 +49,11 @@ Vercel builds on every push to `main` (Vite, output `dist`).
 - **Auto count similar symbols** (Shift+Alt+N, or Measure menu): drag a tight box around ONE symbol. The app renders the sheet, finds copies by pixel matching (rotated copies included), and shows them boxed for review. Adjust sensitivity, click a box to exclude or include it, then "Count these" or "Count on all pages" (same sheet size only). Counts become numbered ring marks you can still move or delete. Always check the result against the sheet: it is an assist, not an authority.
 - Test harness: `tools/backtest/` makes a synthetic electrical plan with known symbol positions (`gen_synthetic.py`) and scores the matcher (`run.mjs`). Synthetic results at sensitivity 0.7 with rotations: duplex 64-80% recall, switch 97-100%, light fixture 94-98%, with 0-3 false hits. Real prints not yet tested. Symbols touching a wall line are the weak spot.
 - Research on what reviewers praise: `docs/BLUEBEAM-FAVORITES.md`.
+
+## Round 5b: what reviewers praise
+- Markups list: sortable columns, group by item, status and comment, CSV (right rail, list icon).
+- Unit costs: type a price per item in the Measurements panel; extended totals show there and in the summary CSV.
+- Spaces: draw a Space (room/zone); the Spaces panel totals what is inside each. Legend: live count table you can place on the sheet. Snapshot: copy a region, Ctrl+V on any page.
+- Copy to other pages: select, Edit > Copy to other pages (same spot; this is also how to stamp every sheet).
+- Document menu: extract, delete, rotate, merge, header/footer/page numbers (each saves a new PDF).
+- File > Compare with an older revision: old sheet shows red on the current one; align by two points.

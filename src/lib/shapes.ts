@@ -6,12 +6,12 @@ import { centroid } from "./geom";
 export type Shape =
   | "polyline" | "polygon" | "rect" | "ellipse" | "arc" | "line" | "arrow" | "cloud" | "text" | "callout"
   | "pen" | "highlight" | "dimension" | "point" | "note" | "angle" | "circle" | "diameter"
-  | "stamp" | "typewriter" | "link" | "image" | "viewport" | "underline" | "strike" | "squiggly" | "hltext" | "whiteout";
+  | "stamp" | "typewriter" | "link" | "image" | "viewport" | "underline" | "strike" | "squiggly" | "hltext" | "whiteout" | "legend";
 
 /** Shapes defined by two opposite corners and drawn/hit-tested as a rectangle. */
 export const RECTLIKE: Shape[] = ["rect", "highlight", "link", "image", "viewport", "underline", "strike", "squiggly", "hltext", "whiteout"];
 /** Shapes anchored at one point (their size comes from the text). */
-export const TEXTLIKE: Shape[] = ["text", "note", "stamp", "typewriter"];
+export const TEXTLIKE: Shape[] = ["text", "note", "stamp", "typewriter", "legend"];
 export const CLOSED: Shape[] = ["polygon", "rect", "ellipse", "cloud", "highlight", "circle", "diameter", "link", "image", "viewport", "underline", "strike", "squiggly", "hltext", "whiteout"];
 export const isClosed = (s: Shape) => CLOSED.includes(s);
 
