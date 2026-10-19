@@ -26,3 +26,10 @@ Vercel builds on every push to `main` (Vite, output `dist`).
 - **Edit points:** select a markup, drag its white handles to reshape, or drag the markup to move it. Locked markups can't be changed.
 - **Snap (S):** on by default. Snaps to ends, centers, midpoints and edges of the PDF's vector lines and of existing markups. Toggle in the toolbar, View menu or with S. Scanned sheets have no vector lines, so only markups snap there.
 - **Scale:** type it (`1/8" = 1'-0"`, `1:48`), pick from the list, or let the app read it from the sheet's text (auto on open, "Detect from page text", "Scan all pages"). Reduced prints and "not to scale" sheets are never auto-set.
+
+## Round 3 additions
+- Measurement text is written on the drawing as you draw (and after), rotated along the line. Turn it off in the Measure menu, or per markup.
+- 30 tools in two toolbar rows: line, arrow, arc, polyline, dimension, callout, rectangle, ellipse, polygon, cloud, cloud+, text box, note, pen, highlight; length, polylength, perimeter, area (polygon/rectangle/ellipse), volume, cutouts, count, diameter, radius (center or 3-point), angle.
+- Array: select a markup, Edit > Array. Command search: Ctrl+K.
+- Shortcuts now follow the common markup-app keys. Plain letters draw markups; Shift+Alt+letter measures; 1-9 are one-key measure shortcuts. Calibrate moved to Shift+Alt+K; lock moved to Ctrl+L.
+- See `docs/BLUEBEAM-COMPLAINTS.md`.

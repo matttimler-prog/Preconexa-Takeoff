@@ -20,17 +20,26 @@ import { extractGeometry } from "./lib/pdfgeom";
 import type { OpList, OpsTable } from "./lib/pdfgeom";
 import { detectScales, parseScaleText, sheetInfo } from "./lib/scaledetect";
 import type { ScaleCandidate } from "./lib/scaledetect";
-import { insertPoint, nearestOnSegment, removePoint, translate } from "./lib/geom";
+import { centroid, insertPoint, nearestOnSegment, removePoint, translate } from "./lib/geom";
+import { MeasureLabel, ShapeView, textSize } from "./components/ShapeView";
+import { ArrayDialog } from "./components/ArrayDialog";
+import { CommandPalette } from "./components/CommandPalette";
+import type { PaletteItem } from "./components/CommandPalette";
+import { TOOLS, TOOL_BY_ID, keyLabel, toolForPreset } from "./lib/tools";
+import type { ToolDef } from "./lib/tools";
+import { circleOf, isClosed, labelAnchor, outline, textBox } from "./lib/shapes";
 import { History, newHistory, push, redo as redoH, undo as undoH, canRedo, canUndo } from "./lib/history";
-import { Kind, Measurement, Takeoff, deleteLayer, ensureLayer, quantity, setScale, summarize, summaryCsv, toCsv } from "./lib/takeoff";
+import { Measurement, Takeoff, UNITS, deleteLayer, ensureLayer, measureLabel, quantity, setScale, shapeOf, summarize, summaryCsv, toCsv } from "./lib/takeoff";
 import { ToolChest, ToolPreset, addTool, defaultChest, newId } from "./lib/toolchest";
 
 pdfjs.GlobalWorkerOptions.workerSrc = workerUrl;
 
-type Tool = "select" | "pan" | "length" | "polylength" | "area" | "count" | "calibrate" | "capture";
+type Tool = string; // "select" | "pan" | "calibrate" | "capture" | a drawing tool id from lib/tools
 const COLORS = ["#e11d48", "#2563eb", "#16a34a", "#d97706", "#7c3aed", "#0891b2"];
 const CHEST_KEY = "preconexa.chest.v1";
 const SNAP_KEY = "preconexa.snap.v1";
+const ASK_KEY = "preconexa.asklabel.v1";
+const LABELS_KEY = "preconexa.labels.v1";
 const empty = (): Takeoff => ({ layers: [{ id: "l1", name: "Layer 1", color: COLORS[0], visible: true }], measurements: [], feetPerUnit: {} });
 
 const store = {
@@ -49,12 +58,13 @@ const inPoly = (p: Pt, pts: Pt[]) => {
   }
   return c;
 };
-const kindOf = (t: Tool): Kind | null => (t === "length" || t === "polylength" ? "length" : t === "area" ? "area" : t === "count" ? "count" : null);
-const HINT: Record<Tool, string> = {
+const HINT: Record<string, string> = {
   select: "Click a markup to select it, drag to move, drag a handle to reshape. Right-click for options.", pan: "Drag to pan.",
-  length: "Click two points.", polylength: "Click points. Double-click or Enter to finish.", area: "Click corners. Double-click or Enter to close.",
-  count: "Click each item.", calibrate: "Click two ends of a known dimension.", capture: "Drag a box around a symbol on the print.",
+  calibrate: "Click two ends of a known dimension.", capture: "Drag a box around a symbol on the print.",
 };
+const hintFor = (tool: string) => HINT[tool] ?? TOOL_BY_ID[tool]?.hint ?? "";
+const presetFits = (p: ToolPreset, d: ToolDef) => p.kind === d.kind && (!p.shape || p.shape === d.shape);
+const tkey = (t: ToolDef) => `${keyLabel(t.key)}${t.alias ? `${t.key ? " or " : ""}${t.alias}` : ""}`;
 
 export function App() {
   const [doc, setDoc] = useState<pdfjs.PDFDocumentProxy | null>(null);
@@ -92,6 +102,11 @@ export function App() {
   const [scaleText, setScaleText] = useState("");
   const [detect, setDetect] = useState<{ page: number; cands: ScaleCandidate[]; nts: boolean; noText: boolean } | null>(null);
   const [busy, setBusy] = useState(false);
+  const [askLabel, setAskLabel] = useState<boolean>(() => store.get<boolean>(ASK_KEY) ?? true);
+  const [showLabels, setShowLabels] = useState<boolean>(() => store.get<boolean>(LABELS_KEY) ?? true);
+  const [arrayOpen, setArrayOpen] = useState(false);
+  const [palette, setPalette] = useState(false);
+  const penRef = useRef<Pt[] | null>(null);
 
   const t = hist.present;
   const scroller = useRef<HTMLDivElement>(null);
@@ -131,6 +146,7 @@ export function App() {
   }, [t, fileKey]);
 
   useEffect(() => { store.set(SNAP_KEY, { on: snapOn, opts: snapOpts }); }, [snapOn, snapOpts]);
+  useEffect(() => { store.set(ASK_KEY, askLabel); store.set(LABELS_KEY, showLabels); }, [askLabel, showLabels]);
   useEffect(() => { if (!msg) return; const id = setTimeout(() => setMsg(""), 7000); return () => clearTimeout(id); }, [msg]);
 
   // ---- vector geometry for snapping (read from the PDF drawing instructions) ----
@@ -212,10 +228,13 @@ export function App() {
     const segs: Seg[] = [], centers: Pt[] = [];
     for (const m of mine) {
       if (m.id === dragId || !t.layers.find((l) => l.id === m.layerId)?.visible) continue;
-      if (m.kind === "count") { centers.push(m.pts[0]); continue; }
-      const n = m.pts.length;
-      for (let i = 0; i + 1 < n; i++) segs.push([m.pts[i].x, m.pts[i].y, m.pts[i + 1].x, m.pts[i + 1].y]);
-      if (m.kind === "area" && n > 2) segs.push([m.pts[n - 1].x, m.pts[n - 1].y, m.pts[0].x, m.pts[0].y]);
+      const sh = shapeOf(m);
+      if (m.kind === "count" || sh === "text" || sh === "note") { centers.push(m.pts[0]); continue; }
+      const o = outline(sh, m.pts), n = o.pts.length;
+      for (let i = 0; i + 1 < n; i++) segs.push([o.pts[i].x, o.pts[i].y, o.pts[i + 1].x, o.pts[i + 1].y]);
+      if (o.closed && n > 2) segs.push([o.pts[n - 1].x, o.pts[n - 1].y, o.pts[0].x, o.pts[0].y]);
+      if ((sh === "rect" || sh === "ellipse") && m.pts.length >= 2) centers.push({ x: (m.pts[0].x + m.pts[1].x) / 2, y: (m.pts[0].y + m.pts[1].y) / 2 });
+      const k = circleOf(sh, m.pts); if (k) centers.push(k.c);
     }
     return new SnapIndex(segs, centers);
   }, [mine, t.layers, dragId]);
@@ -236,24 +255,46 @@ export function App() {
   });
   const removeM = (m: Measurement) => { if (m.locked) { say("That markup is locked. Right-click it and choose Unlock first."); return; } apply((x) => ({ ...x, measurements: x.measurements.filter((y) => y.id !== m.id) })); setSelected(null); };
 
-  const commit = (kind: Kind, pts: Pt[]) => {
+  const commit = (def: ToolDef, pts: Pt[]) => {
     if (!pts.length) return;
-    let label: string, color: string | undefined, lineWidth: number | undefined, symbol = preset?.symbol, layerName = preset?.layerName;
-    if (preset && preset.kind === kind) { label = preset.label; color = preset.color; lineWidth = preset.lineWidth; }
-    else { symbol = undefined; layerName = undefined; label = prompt("Label for this item (e.g. 2x4 troffer, 3/4 EMT)") || kind; }
+    const usePreset = preset && presetFits(preset, def) ? preset : null;
+    let label = def.label, text = usePreset?.text, depth = usePreset?.depth, parentLayer: string | undefined;
+    if (usePreset) label = usePreset.label;
+    else if (def.kind === "cutout") label = "Cutout";
+    else if (def.kind !== "markup" && askLabel) {
+      const a = prompt(`Label for this ${def.label.toLowerCase()} (e.g. 2x4 troffer, 3/4 EMT, Slab)`);
+      if (a === null) { setDraft([]); return; }
+      label = a.trim() || def.label;
+    }
+    if (def.ask === "text" && text === undefined) {
+      const a = prompt(def.id === "note" ? "Note text" : "Text");
+      if (a === null) { setDraft([]); return; }
+      text = a;
+    }
+    if (def.ask === "depth" && depth == null) {
+      const a = prompt("How deep is it? (e.g. 4 in, 6\", 0.5'. A plain number means feet.)");
+      const ft = a === null ? null : parseDistance(a);
+      if (ft == null || ft <= 0) { if (a !== null) alert(`Couldn't read "${a}" as a depth. Try 4 in or 0.5'.`); setDraft([]); return; }
+      depth = ft;
+    }
+    if (def.kind === "cutout") {
+      const c = centroid(outline(def.shape, pts).pts);
+      const par = [...mine].reverse().find((m) => (m.kind === "area" || m.kind === "volume") && layerOf(m.layerId)?.visible && (() => { const o = outline(shapeOf(m), m.pts); return o.closed && inPoly(c, o.pts); })());
+      if (par) { label = par.label; parentLayer = par.layerId; } else say("There's no area under that cutout, so it will subtract on its own. Draw the area first, then the cutout inside it.");
+    }
+    const color = usePreset?.color, lineWidth = usePreset?.lineWidth, symbol = usePreset?.symbol, layerName = usePreset?.layerName;
     apply((x) => {
-      let tk = x, layerId = activeLayer;
-      if (layerName) { const r = ensureLayer(x, layerName, color ?? COLORS[x.layers.length % COLORS.length]); tk = r.takeoff; layerId = r.layerId; }
-      return { ...tk, measurements: [...tk.measurements, { id: newId("m"), layerId, kind, page, label, pts, color, lineWidth, symbol }] };
+      let tk = x, layerId = parentLayer ?? activeLayer;
+      if (layerName && !parentLayer) { const r = ensureLayer(x, layerName, color ?? COLORS[x.layers.length % COLORS.length]); tk = r.takeoff; layerId = r.layerId; }
+      return { ...tk, measurements: [...tk.measurements, { id: newId("m"), layerId, kind: def.kind, shape: def.shape, page, label, pts, color, lineWidth, symbol, text, depth }] };
     });
     setDraft([]);
   };
   const finish = () => {
+    const def = TOOL_BY_ID[tool];
+    if (!def || def.mode !== "poly") { if (tool === "calibrate") setDraft([]); return; }
     const pts = draft.filter((p, i) => i === 0 || dist(p, draft[i - 1]) > 0.5);
-    const kind = kindOf(tool);
-    if (kind === "length" && pts.length > 1) commit("length", pts);
-    else if (kind === "area" && pts.length > 2) commit("area", pts);
-    else if (tool === "calibrate") setDraft([]);
+    if (pts.length >= (isClosed(def.shape) ? 3 : 2)) commit(def, pts);
   };
   /** Pointer position in page units, snapped to drawing geometry and markups unless Shift (angle lock) or snap is off. */
   const resolve = (e: { clientX: number; clientY: number; shiftKey: boolean }, noSnap = false): { p: Pt; hit: SnapHit | null } => {
@@ -275,13 +316,18 @@ export function App() {
     const tol = 8 / zoom;
     for (let i = mine.length - 1; i >= 0; i--) {
       const m = mine[i]; if (!layerOf(m.layerId)?.visible) continue;
-      const pts = m.pts;
+      const pts = m.pts, sh = shapeOf(m);
       if (m.kind === "count") { if (dist(p, pts[0]) <= Math.max(tol, (m.symbol?.size ?? 12) / 2)) return { m, vertex: null, onEdge: false }; continue; }
+      const inBox = (b: { x: number; y: number; w: number; h: number }) => p.x >= b.x && p.x <= b.x + b.w && p.y >= b.y && p.y <= b.y + b.h;
+      if (sh === "text") { if (inBox(textBox(m.text ?? "", pts[0], textSize(zoom)))) return { m, vertex: null, onEdge: false }; continue; }
+      if (sh === "note") { if (inBox({ x: pts[0].x, y: pts[0].y, w: 16 / zoom, h: 16 / zoom })) return { m, vertex: null, onEdge: false }; continue; }
+      if (sh === "callout" && pts.length > 1 && inBox(textBox(m.text ?? "", pts[1], textSize(zoom)))) return { m, vertex: null, onEdge: false };
       const vi = pts.findIndex((q) => dist(p, q) <= tol); if (vi >= 0) return { m, vertex: vi, onEdge: false };
-      const n = pts.length; let edge = Infinity;
-      for (let k = 0; k + 1 < n + (m.kind === "area" ? 1 : 0); k++) edge = Math.min(edge, nearestOnSegment(p, pts[k], pts[(k + 1) % n]).d);
+      const o = outline(sh, pts), n = o.pts.length; let edge = Infinity;
+      for (let k = 0; k + 1 < n + (o.closed ? 1 : 0); k++) edge = Math.min(edge, nearestOnSegment(p, o.pts[k], o.pts[(k + 1) % n]).d);
       if (edge <= tol) return { m, vertex: null, onEdge: true };
-      if (m.kind === "area" && inPoly(p, pts)) return { m, vertex: null, onEdge: false };
+      const filled = m.kind === "area" || m.kind === "volume" || m.kind === "cutout" || sh === "highlight";
+      if (filled && o.closed && inPoly(p, o.pts)) return { m, vertex: null, onEdge: false };
     }
     return null;
   };
@@ -327,29 +373,30 @@ export function App() {
         { label: "Select", shortcut: "V", checked: tool === "select", onClick: () => run("tool:select") }, { label: "Pan", shortcut: "Shift+V", checked: tool === "pan", onClick: () => run("tool:pan") },
         { sep: true, label: "" }, { label: "Fit width", shortcut: "Ctrl+0", onClick: () => run("zoom:fit") },
         { label: "Snap to edges and centers", shortcut: "S", checked: snapOn, onClick: () => run("snap:toggle") },
-        { sep: true, label: "" }, { label: "Calibrate…", shortcut: "K", onClick: () => run("tool:calibrate") }, { label: "Set page scale…", onClick: () => setRightTab("qty") }] });
+        { sep: true, label: "" }, { label: "Calibrate…", shortcut: "Shift+Alt+K", onClick: () => run("tool:calibrate") }, { label: "Set page scale…", onClick: () => setRightTab("qty") }] });
       return;
     }
-    const { m, vertex, onEdge } = h, lk = !!m.locked, min = m.kind === "area" ? 3 : 2;
+    const { m, vertex, onEdge } = h, lk = !!m.locked, sh = shapeOf(m), min = isClosed(sh) ? 3 : 2;
     setSelected(m.id);
     const items: CtxItem[] = [
       { label: "Properties", onClick: () => { setSelected(m.id); setRightTab("props"); } },
-      { label: lk ? "Unlock" : "Lock", shortcut: "Shift+L", onClick: () => toggleLock(m.id) },
+      { label: lk ? "Unlock" : "Lock", shortcut: "Ctrl+L", onClick: () => toggleLock(m.id) },
       { sep: true, label: "" },
       { label: "Move to layer", header: true },
       ...t.layers.map((l): CtxItem => ({ label: l.name, sub: true, checked: l.id === m.layerId, disabled: lk, onClick: () => patchM(m.id, { layerId: l.id }) })),
       { sep: true, label: "" },
-      { label: "Duplicate", shortcut: "Ctrl+D", onClick: () => duplicate(m.id) },
+      { label: "Duplicate", shortcut: "Ctrl+D", onClick: () => duplicate(m.id) }, { label: "Array…", onClick: () => { setSelected(m.id); setArrayOpen(true); } },
       { label: "Bring to front", onClick: () => reorder(m.id, true) }, { label: "Send to back", onClick: () => reorder(m.id, false) },
       { sep: true, label: "" },
       { label: "Add to Tool Chest", header: true },
       ...chest.sets.map((s): CtxItem => ({ label: s.name, sub: true, onClick: () => addToChest(m, s.id) })),
     ];
-    if (m.kind !== "count") {
+    if (sh === "polyline" || sh === "polygon" || sh === "cloud") {
       items.push({ sep: true, label: "" });
       if (vertex != null) items.push({ label: "Delete point", disabled: lk || m.pts.length <= min, onClick: () => { const r = removePoint(m.pts, vertex, min); if (r) patchM(m.id, { pts: r }); } });
-      else if (onEdge) items.push({ label: "Add point here", disabled: lk, onClick: () => patchM(m.id, { pts: insertPoint(m.pts, p, m.kind === "area") }) });
+      else if (onEdge) items.push({ label: "Add point here", disabled: lk, onClick: () => patchM(m.id, { pts: insertPoint(m.pts, p, isClosed(sh)) }) });
     }
+    if (m.kind !== "count" && m.kind !== "markup") items.push({ label: m.hideLabel ? "Show measurement text" : "Hide measurement text", onClick: () => patchM(m.id, { hideLabel: !m.hideLabel }) });
     items.push({ sep: true, label: "" }, { label: "Delete", shortcut: "Del", disabled: lk, onClick: () => removeM(m) });
     setCtx({ ...at, items });
   };
@@ -359,10 +406,18 @@ export function App() {
     if (tool === "select") { setSelected(null); return; }
     if (tool === "pan" || tool === "capture") return;
     const p = resolve(e).p;
-    if (tool === "count") return commit("count", [p]);
-    const pts = [...draft, p];
-    if (tool === "length" && pts.length === 2) return commit("length", pts);
+    const def = TOOL_BY_ID[tool];
+    if (def) {
+      if (def.mode === "free") return;
+      if (def.mode === "one") return commit(def, [p]);
+      if (draft.length && dist(p, draft[draft.length - 1]) < 1 / zoom) return;
+      const pts = [...draft, p];
+      if ((def.mode === "two" && pts.length === 2) || (def.mode === "three" && pts.length === 3)) return commit(def, pts);
+      setDraft(pts);
+      return;
+    }
     if (tool === "calibrate") {
+      const pts = [...draft, p];
       if (pts.length < 2) return setDraft(pts);
       const entered = prompt("How long is the distance you just clicked?\nType it any way you like: 20, 20', 20'-6\", 240 in, 5 m\n(or type the sheet's printed scale, e.g. 1/8\" = 1'-0\")");
       setDraft([]);
@@ -370,11 +425,11 @@ export function App() {
       if (dist(pts[0], pts[1]) < 1) { alert("The two points are on top of each other. Click two separate points on the dimension you want to use."); return; }
       const k = entered.includes("=") ? parseArchScale(entered) : (() => { const ft = parseDistance(entered); return ft == null ? null : calibrate(pts[0], pts[1], ft); })();
       if (k == null) { alert(`Couldn't read "${entered}". Try something like 20, 20', 20'-6", 240 in or 5 m, or a scale like 1/8" = 1'-0".`); return; }
-      apply((x) => setScale(x, allPages ? Array.from({ length: pageCount }, (_, i) => i + 1) : [page], k));
+      const prev = t.feetPerUnit[page];
+      apply((x) => setScale(x, allPages ? Array.from({ length: pageCount }, (_, i) => i + 1) : [page], k, "calibrated on the sheet"));
+      if (prev && Math.abs(k - prev) / prev > 0.02) say(`The new scale differs from the old one by ${((Math.abs(k - prev) / prev) * 100).toFixed(1)}%. If the sheet is one scale, check which dimension you trust.`);
       setTool("select");
-      return;
     }
-    setDraft(pts);
   };
 
   // ---- symbol capture ----
@@ -406,13 +461,26 @@ export function App() {
   };
 
   // ---- commands ----
+  const openArray = () => { if (!selected) { say("Select a markup first, then choose Array."); return; } setArrayOpen(true); };
+  const doArray = (rows: number, cols: number, dx: number, dy: number) => {
+    const m = t.measurements.find((y) => y.id === selected); if (!m) return;
+    const copies: Measurement[] = [];
+    for (let r = 0; r < rows; r++) for (let c = 0; c < cols; c++) if (r || c) copies.push({ ...m, id: newId("m"), pts: translate(m.pts, c * dx, r * dy), locked: false });
+    apply((x) => ({ ...x, measurements: [...x.measurements, ...copies] }));
+    setArrayOpen(false); say(`Created ${copies.length} copies.`);
+  };
   const run = (cmd: Command) => {
+    if (cmd.startsWith("tool:")) {
+      const id = cmd.slice(5), d = TOOL_BY_ID[id];
+      if (id === "select" || id === "pan" || id === "calibrate" || id === "capture" || d) {
+        setTool(id); setDraft([]); penRef.current = null; setSnapHit(null);
+        if (id !== "select" && !(d && preset && presetFits(preset, d))) setPreset(null);
+      }
+      return;
+    }
     switch (cmd) {
-      case "tool:select": case "tool:pan": case "tool:calibrate": case "tool:capture": {
-        const tt = cmd.slice(5) as Tool; setTool(tt); setDraft([]); if (tt !== "select") setPreset(null); if (tt === "calibrate") setPreset(null); break; }
-      case "tool:length": case "tool:polylength": case "tool:area": case "tool:count": {
-        const tt = cmd.slice(5) as Tool; setTool(tt); setDraft([]);
-        if (preset && preset.kind !== kindOf(tt)) setPreset(null); break; }
+      case "array": openArray(); break;
+      case "palette": setPalette(true); break;
       case "page:next": goPage(page + 1); break;
       case "page:prev": goPage(page - 1); break;
       case "page:first": goPage(1); break;
@@ -432,7 +500,7 @@ export function App() {
       case "cancel": if (ctx) setCtx(null); else if (drag.current) dragCancel(); else if (draft.length || capRect) { setDraft([]); setCapRect(null); } else { setTool("select"); setPreset(null); } break;
     }
   };
-  const arm = (p: ToolPreset) => { setPreset(p); setTool(p.kind === "count" ? "count" : p.kind === "area" ? "area" : "polylength"); setDraft([]); };
+  const arm = (p: ToolPreset) => { setPreset(p); setTool(toolForPreset(p.kind, p.shape).id); setDraft([]); };
 
   // keyboard (re-bound every render so handlers see current state)
   useEffect(() => {
@@ -484,7 +552,7 @@ export function App() {
   const sel = t.measurements.find((m) => m.id === selected) ?? null;
   const patchSel = (patch: Partial<Measurement>) => { if (selected) patchM(selected, patch); };
   const addToChest = (m: Measurement, setId: string) => {
-    setChest(addTool(chest, setId, { name: m.label, kind: m.kind, color: colorOf(m), lineWidth: m.lineWidth ?? 2, label: m.label, layerName: layerOf(m.layerId)?.name, symbol: m.symbol }));
+    setChest(addTool(chest, setId, { name: m.label, kind: m.kind, shape: shapeOf(m), depth: m.depth, text: m.text, color: colorOf(m), lineWidth: m.lineWidth ?? 2, label: m.label, layerName: layerOf(m.layerId)?.name, symbol: m.symbol }));
     setLeftTab("chest");
   };
 
@@ -577,7 +645,8 @@ export function App() {
     { label: "Edit", items: [
       { label: "Undo", shortcut: "Ctrl+Z", disabled: !canUndo(hist), onClick: () => run("undo") }, { label: "Redo", shortcut: "Ctrl+Y", disabled: !canRedo(hist), onClick: () => run("redo") },
       { sep: true, label: "" }, { label: "Duplicate selected", shortcut: "Ctrl+D", disabled: !selected, onClick: () => run("duplicate") },
-      { label: "Lock / unlock selected", shortcut: "Shift+L", disabled: !selected, onClick: () => run("lock:toggle") }, { label: "Delete selected", shortcut: "Del", disabled: !selected, onClick: () => run("delete") } ] },
+      { label: "Array selected…", disabled: !selected, onClick: () => run("array") },
+      { label: "Lock / unlock selected", shortcut: "Ctrl+L", disabled: !selected, onClick: () => run("lock:toggle") }, { label: "Delete selected", shortcut: "Del", disabled: !selected, onClick: () => run("delete") } ] },
     { label: "View", items: [
       { label: "Zoom in", shortcut: "+", onClick: () => run("zoom:in") }, { label: "Zoom out", shortcut: "-", onClick: () => run("zoom:out") }, { label: "Fit width", shortcut: "Ctrl+0", onClick: () => run("zoom:fit") },
       { sep: true, label: "" }, { label: "Mouse wheel zooms", checked: wheelMode === "zoom", onClick: () => setWheelMode("zoom") }, { label: "Mouse wheel changes pages", checked: wheelMode === "page", shortcut: "W", onClick: () => setWheelMode("page") },
@@ -590,15 +659,37 @@ export function App() {
       { label: "First page", shortcut: "Home", onClick: () => run("page:first") }, { label: "Last page", shortcut: "End", onClick: () => run("page:last") } ] },
     { label: "Markup", items: [
       { label: "Select", shortcut: "V", checked: tool === "select", onClick: () => run("tool:select") }, { label: "Pan", shortcut: "Shift+V", checked: tool === "pan", onClick: () => run("tool:pan") }, { sep: true, label: "" },
-      { label: "Length", shortcut: "L", checked: tool === "length", onClick: () => run("tool:length") }, { label: "Polylength", shortcut: "Shift+N", checked: tool === "polylength", onClick: () => run("tool:polylength") },
-      { label: "Area", shortcut: "A", checked: tool === "area", onClick: () => run("tool:area") }, { label: "Count", shortcut: "C", checked: tool === "count", onClick: () => run("tool:count") },
-      { sep: true, label: "" }, { label: "Capture symbol from print", shortcut: "Shift+S", onClick: () => run("tool:capture") } ] },
+      ...TOOLS.filter((x) => x.group === "markup").map((x) => ({ label: x.label, shortcut: tkey(x), checked: tool === x.id, onClick: () => run(`tool:${x.id}`) })),
+      { sep: true, label: "" }, { label: "Array selected…", disabled: !selected, onClick: () => run("array") }, { label: "Capture symbol from print", shortcut: "Shift+S", onClick: () => run("tool:capture") } ] },
     { label: "Measure", items: [
-      { label: "Calibrate…", shortcut: "K", onClick: () => run("tool:calibrate") }, { label: "Scale and quantities", onClick: () => setRightTab("qty") },
-      { label: "Apply scale to all pages", checked: allPages, onClick: () => setAllPages(!allPages) } ] },
+      ...TOOLS.filter((x) => x.group === "measure").map((x) => ({ label: x.label, shortcut: tkey(x), checked: tool === x.id, onClick: () => run(`tool:${x.id}`) })),
+      { sep: true, label: "" }, { label: "Calibrate…", shortcut: "Shift+Alt+K", onClick: () => run("tool:calibrate") }, { label: "Scale and quantities", onClick: () => setRightTab("qty") },
+      { label: "Apply scale to all pages", checked: allPages, onClick: () => setAllPages(!allPages) },
+      { sep: true, label: "" }, { label: "Show measurement text on the drawing", checked: showLabels, onClick: () => setShowLabels(!showLabels) },
+      { label: "Ask for a label after each measurement", checked: askLabel, onClick: () => setAskLabel(!askLabel) } ] },
     { label: "Tools", items: [
       { label: "Tool Chest", onClick: () => setLeftTab("chest") }, { label: "Layers", onClick: () => setLeftTab("layers") }, { label: "Page thumbnails", onClick: () => setLeftTab("pages") }, { label: "All markups", onClick: () => setRightTab("markups") } ] },
-    { label: "Help", items: [{ label: "Keyboard shortcuts", onClick: () => setRightTab("keys") }] },
+    { label: "Help", items: [{ label: "Search every command", shortcut: "Ctrl+K", onClick: () => run("palette") }, { label: "Keyboard shortcuts", onClick: () => setRightTab("keys") }] },
+  ];
+
+  const paletteItems: PaletteItem[] = [
+    ...TOOLS.map((x): PaletteItem => ({ id: `t-${x.id}`, label: `${x.group === "measure" ? "Measure" : "Draw"}: ${x.label}`, hint: tkey(x), run: () => run(`tool:${x.id}`) })),
+    { id: "sel", label: "Select tool", hint: "V", run: () => run("tool:select") }, { id: "pan", label: "Pan tool", hint: "Shift+V", run: () => run("tool:pan") },
+    { id: "cal", label: "Calibrate the page scale", hint: "Shift+Alt+K", run: () => run("tool:calibrate") },
+    { id: "scale", label: "Scale: type it or pick it", hint: "Measurements panel", run: () => setRightTab("qty") },
+    { id: "det", label: "Scale: detect from page text", run: () => { setRightTab("qty"); void detectNow(); } },
+    { id: "scan", label: "Scale: scan all pages", run: () => { setRightTab("qty"); void scanAll(); } },
+    { id: "cap", label: "Capture a symbol from the print", hint: "Shift+S", run: () => run("tool:capture") },
+    { id: "arr", label: "Array the selected markup", run: () => run("array") }, { id: "dup", label: "Duplicate selected", hint: "Ctrl+D", run: () => run("duplicate") },
+    { id: "lock", label: "Lock or unlock selected", hint: "Ctrl+L", run: () => run("lock:toggle") }, { id: "del", label: "Delete selected", hint: "Del", run: () => run("delete") },
+    { id: "snap", label: "Snap on / off", hint: "S", run: () => run("snap:toggle") }, { id: "wheel", label: "Mouse wheel: zoom or change pages", hint: "W", run: () => run("wheel:toggle") },
+    { id: "fit", label: "Fit page width", hint: "Ctrl+0", run: () => run("zoom:fit") }, { id: "zi", label: "Zoom in", hint: "+", run: () => run("zoom:in") }, { id: "zo", label: "Zoom out", hint: "-", run: () => run("zoom:out") },
+    { id: "undo", label: "Undo", hint: "Ctrl+Z", run: () => run("undo") }, { id: "redo", label: "Redo", hint: "Ctrl+Y", run: () => run("redo") },
+    { id: "open", label: "Open a PDF", run: () => fileIn.current?.click() }, { id: "save", label: "Save takeoff (JSON)", run: () => download("takeoff.json", JSON.stringify(t, null, 1)) },
+    { id: "csv1", label: "Export summary (CSV)", run: () => download("takeoff-summary.csv", summaryCsv(t)) }, { id: "csv2", label: "Export every markup (CSV)", run: () => download("takeoff-detail.csv", toCsv(t)) },
+    { id: "chest", label: "Show the Tool Chest", run: () => setLeftTab("chest") }, { id: "layers", label: "Show layers", run: () => setLeftTab("layers") }, { id: "pages", label: "Show page thumbnails", run: () => setLeftTab("pages") },
+    { id: "keys", label: "Keyboard shortcuts", run: () => setRightTab("keys") },
+    { id: "labels", label: "Show or hide measurement text", run: () => setShowLabels(!showLabels) },
   ];
 
   const field = (label: string, el: JSX.Element) => <div className="field"><span>{label}</span>{el}</div>;
@@ -610,8 +701,11 @@ export function App() {
       {field("Layer", <select value={sel.layerId} onChange={(e) => patchSel({ layerId: e.target.value })}>{t.layers.map((l) => <option key={l.id} value={l.id}>{l.name}</option>)}</select>)}
       {field("Color", <input type="color" value={colorOf(sel)} onChange={(e) => patchSel({ color: e.target.value })} />)}
       {field("Line", <input type="number" min={1} max={12} value={sel.lineWidth ?? 2} onChange={(e) => patchSel({ lineWidth: Number(e.target.value) })} />)}
+      {["text", "callout", "note", "cloud"].includes(sel.shape ?? "") && field("Text", <textarea rows={3} value={sel.text ?? ""} onChange={(e) => patchSel({ text: e.target.value })} />)}
+      {sel.kind === "volume" && field("Depth (ft)", <input type="number" min={0} step={0.05} value={sel.depth ?? ""} onChange={(e) => patchSel({ depth: Number(e.target.value) > 0 ? Number(e.target.value) : undefined })} />)}
+      {sel.kind !== "markup" && sel.kind !== "count" && <label style={{ display: "block", margin: "4px 0" }}><input type="checkbox" checked={!sel.hideLabel} onChange={() => patchSel({ hideLabel: !sel.hideLabel })} /> Show measurement text</label>}
       {sel.symbol && field("Size", <input type="number" min={4} max={80} value={sel.symbol.size} onChange={(e) => patchSel({ symbol: { ...sel.symbol!, size: Number(e.target.value) } })} />)}
-      {field("Quantity", <b>{(() => { const q = quantity(sel, t.feetPerUnit[sel.page]); return q == null ? "Needs calibration" : `${q.toFixed(2)} ${sel.kind === "length" ? "LF" : sel.kind === "area" ? "SF" : "EA"}`; })()}</b>)}
+      {sel.kind !== "markup" && field("Quantity", <b>{(() => { const q = quantity(sel, t.feetPerUnit[sel.page]); return q == null ? (sel.kind === "volume" && sel.depth == null ? "Needs depth" : "Needs calibration") : `${q.toFixed(2)} ${UNITS[sel.kind]}`; })()}</b>)}
       {field("Page", <span>{sel.page}</span>)}
       </fieldset>
       <div style={{ display: "flex", gap: 6, marginTop: 8, flexWrap: "wrap" }}>
@@ -664,7 +758,7 @@ export function App() {
         const q = quantity(m, t.feetPerUnit[m.page]);
         return (
           <div key={m.id} className={"row" + (m.id === selected ? " on" : "")} style={{ cursor: "pointer" }} onClick={() => { goPage(m.page); setSelected(m.id); setTool("select"); }}>
-            <span style={{ color: colorOf(m) }}><Icon name={m.kind === "count" ? "count" : m.kind === "area" ? "area" : "polylength"} size={16} /></span>
+            <span style={{ color: colorOf(m) }}><Icon name={(TOOLS.find((x) => x.kind === m.kind && x.shape === shapeOf(m))?.icon ?? "polylength") as IconName} size={16} /></span>
             <span className="grow">{m.label}</span>{m.locked && <Icon name="lock" size={14} />}<span className="muted">p{m.page}</span>
             <span>{q == null ? "—" : q.toFixed(1)}</span>
           </div>);
@@ -704,12 +798,10 @@ export function App() {
           {tb("pan", "Pan (Shift+V)", () => run("tool:pan"), tool === "pan")}
         </div>
         <div className="tb-group">
-          {tb("length", "Length (L)", () => run("tool:length"), tool === "length")}
-          {tb("polylength", "Polylength (Shift+N)", () => run("tool:polylength"), tool === "polylength")}
-          {tb("area", "Area (A)", () => run("tool:area"), tool === "area")}
-          {tb("count", "Count (C)", () => run("tool:count"), tool === "count")}
-          {tb("calibrate", "Calibrate (K)", () => run("tool:calibrate"), tool === "calibrate")}
+          {tb("calibrate", "Calibrate the page scale (Shift+Alt+K)", () => run("tool:calibrate"), tool === "calibrate")}
           {tb("capture", "Capture symbol (Shift+S)", () => run("tool:capture"), tool === "capture")}
+          {tb("array", "Array the selected markup", () => run("array"), false, !selected)}
+          {tb("search", "Search every command (Ctrl+K)", () => run("palette"))}
         </div>
         <div className="tb-group">
           {tb("zoomOut", "Zoom out (-)", () => run("zoom:out"))}
@@ -729,6 +821,12 @@ export function App() {
         </div>
         <input ref={fileIn} type="file" accept="application/pdf" style={{ display: "none" }} onChange={(e) => { const f = e.target.files?.[0]; e.target.value = ""; if (f) void openDoc(f); }} />
         <input ref={loadIn} type="file" accept="application/json,.json" style={{ display: "none" }} onChange={(e) => { const f = e.target.files?.[0]; e.target.value = ""; if (f) void loadTakeoff(f); }} />
+      </div>
+      <div className="toolbar two">
+        <span className="tb-label">Markup</span>
+        {TOOLS.filter((x) => x.group === "markup").map((x) => tb(x.icon as IconName, `${x.label} (${tkey(x)})`, () => run(`tool:${x.id}`), tool === x.id))}
+        <span className="tb-label">Measure</span>
+        {TOOLS.filter((x) => x.group === "measure").map((x) => tb(x.icon as IconName, `${x.label} (${tkey(x)})`, () => run(`tool:${x.id}`), tool === x.id))}
       </div>
 
       <div className="body">
@@ -760,12 +858,22 @@ export function App() {
                 <canvas ref={canvas} style={{ width: pageSize.w * zoom, height: pageSize.h * zoom, display: "block" }} />
                 <svg ref={svg} width={pageSize.w * zoom} height={pageSize.h * zoom} viewBox={`0 0 ${pageSize.w} ${pageSize.h}`}
                   style={{ position: "absolute", inset: 0 }} onClick={onSvgClick} onDoubleClick={() => { if (tool === "polylength" || tool === "area") finish(); }} onContextMenu={openCtx}
-                  onPointerMove={(e) => { if (drag.current) { dragMove(e); return; } const r = resolve(e); setCursor(r.p); setSnapHit(r.hit); capturePointer(e, "move"); }}
-                  onPointerDown={(e) => capturePointer(e, "down")} onPointerUp={(e) => { dragEnd(); capturePointer(e, "up"); }} onPointerCancel={dragCancel}>
+                  onPointerMove={(e) => {
+                    if (drag.current) { dragMove(e); return; }
+                    if (penRef.current) { const q = resolve(e, true).p, last = penRef.current[penRef.current.length - 1]; if (dist(q, last) > 2 / zoom) { penRef.current = [...penRef.current, q]; setDraft(penRef.current); } return; }
+                    const r = resolve(e); setCursor(r.p); setSnapHit(r.hit); capturePointer(e, "move"); }}
+                  onPointerDown={(e) => {
+                    if (tool === "pen" && e.button === 0 && !spaceDown) { const q = resolve(e, true).p; penRef.current = [q]; setDraft([q]); svg.current?.setPointerCapture(e.pointerId); return; }
+                    capturePointer(e, "down");
+                  }}
+                  onPointerUp={(e) => {
+                    if (penRef.current) { const pts = penRef.current; penRef.current = null; justDragged.current = performance.now(); if (pts.length > 1) commit(TOOL_BY_ID.pen, pts); else setDraft([]); return; }
+                    dragEnd(); capturePointer(e, "up");
+                  }} onPointerCancel={() => { penRef.current = null; dragCancel(); }}>
                   {mine.map((m) => {
                     const l = layerOf(m.layerId); if (!l?.visible) return null;
-                    const c = colorOf(m), isSel = m.id === selected, hit = tool === "select" ? "all" : "none";
-                    const mp = liveMods?.id === m.id ? liveMods.pts : m.pts;
+                    const c = colorOf(m), isSel = m.id === selected, hit = tool === "select" ? "visiblePainted" : "none";
+                    const mp = liveMods?.id === m.id ? liveMods.pts : m.pts, sh = shapeOf(m);
                     const down = (e: React.PointerEvent) => startDrag(e, m, null);
                     const stop = (e: React.MouseEvent) => { if (tool === "select") e.stopPropagation(); };
                     const gs = { pointerEvents: hit, cursor: tool === "select" && !m.locked ? "move" : undefined } as React.CSSProperties;
@@ -773,20 +881,29 @@ export function App() {
                       const p = mp[0];
                       return <g key={m.id} onPointerDown={down} onClick={stop} style={gs}>{m.symbol ? <SymbolMark symbol={m.symbol} cx={p.x} cy={p.y} color={c} selected={isSel} /> : <circle cx={p.x} cy={p.y} r={6} fill={c} stroke={isSel ? "#000" : "none"} strokeWidth={2} vectorEffect="non-scaling-stroke" />}</g>;
                     }
-                    const pts = mp.map((p) => `${p.x},${p.y}`).join(" ");
+                    const live = mp === m.pts ? m : { ...m, pts: mp };
+                    const lab = showLabels && !m.hideLabel ? measureLabel(live, t.feetPerUnit[m.page]) : null, an = lab ? labelAnchor(sh, mp) : null;
                     return (
                       <g key={m.id} onPointerDown={down} onClick={stop} style={gs}>
-                        {m.kind === "area"
-                          ? <polygon points={pts} fill={c + "33"} stroke={isSel ? "#000" : c} strokeWidth={isSel ? 3 : (m.lineWidth ?? 2)} vectorEffect="non-scaling-stroke" />
-                          : <polyline points={pts} fill="none" stroke={isSel ? "#000" : c} strokeWidth={isSel ? 3 : (m.lineWidth ?? 2)} vectorEffect="non-scaling-stroke" />}
-                        <polyline points={pts} fill="none" stroke="transparent" strokeWidth={12} vectorEffect="non-scaling-stroke" />
-                        {isSel && !m.locked && mp.map((p, i) => <circle key={i} cx={p.x} cy={p.y} r={5 / zoom} fill="#fff" stroke="#000" vectorEffect="non-scaling-stroke" style={{ cursor: "crosshair" }} onPointerDown={(e) => startDrag(e, m, i)} />)}
+                        <ShapeView kind={m.kind} shape={sh} pts={mp} color={c} lw={m.lineWidth ?? 2} zoom={zoom} text={m.text} selected={isSel} />
+                        {lab && an && <MeasureLabel text={lab} pt={an.pt} angle={an.angle} onLine={an.onLine} zoom={zoom} color={c} />}
+                        {isSel && !m.locked && sh !== "text" && sh !== "note" && mp.map((p, i) => <circle key={i} cx={p.x} cy={p.y} r={5 / zoom} fill="#fff" stroke="#000" vectorEffect="non-scaling-stroke" style={{ cursor: "crosshair" }} onPointerDown={(e) => startDrag(e, m, i)} />)}
                       </g>);
                   })}
-                  {draft.length > 0 && <polyline points={[...draft, ...(cursor ? [cursor] : [])].map((p) => `${p.x},${p.y}`).join(" ")} fill="none" stroke="#000" strokeDasharray="5 4" strokeWidth={1.5} vectorEffect="non-scaling-stroke" />}
+                  {tool === "calibrate" && draft.length > 0 && <polyline points={[...draft, ...(cursor ? [cursor] : [])].map((p) => `${p.x},${p.y}`).join(" ")} fill="none" stroke="#000" strokeDasharray="5 4" strokeWidth={1.5} vectorEffect="non-scaling-stroke" />}
+                  {(() => {
+                    const def = TOOL_BY_ID[tool];
+                    if (!def || def.mode === "one" || !draft.length) return null;
+                    const pv = def.mode === "free" ? draft : [...draft, ...(cursor ? [cursor] : [])];
+                    const pm: Measurement = { id: "preview", layerId: activeLayer, kind: def.kind, shape: def.shape, page, label: "", pts: pv, depth: undefined };
+                    const lab = showLabels ? measureLabel(pm, fpu) : null, an = lab && pv.length > 1 ? labelAnchor(def.shape, pv) : null;
+                    const col = preset && presetFits(preset, def) ? preset.color : layerOf(activeLayer)?.color ?? "#2563eb";
+                    return <g pointerEvents="none"><ShapeView kind={def.kind} shape={def.shape} pts={pv} color={col} lw={2} zoom={zoom} text={def.ask === "text" ? "…" : undefined} preview />
+                      {lab && an && def.kind !== "volume" && <MeasureLabel text={lab} pt={an.pt} angle={an.angle} onLine={an.onLine} zoom={zoom} color={col} />}</g>;
+                  })()}
                   {tool === "count" && cursor && preset?.symbol && <g opacity={0.5}><SymbolMark symbol={preset.symbol} cx={cursor.x} cy={cursor.y} color={preset.color} /></g>}
                   {capRect && <rect x={Math.min(capRect.a.x, capRect.b.x)} y={Math.min(capRect.a.y, capRect.b.y)} width={Math.abs(capRect.b.x - capRect.a.x)} height={Math.abs(capRect.b.y - capRect.a.y)} fill="#2563eb22" stroke="#2563eb" strokeDasharray="4" vectorEffect="non-scaling-stroke" />}
-                  {snapHit && (tool === "length" || tool === "polylength" || tool === "area" || tool === "count" || tool === "calibrate" || liveMods) && (() => {
+                  {snapHit && (TOOL_BY_ID[tool] != null || tool === "calibrate" || liveMods) && (() => {
                     const q = 6 / zoom, { x, y } = snapHit.pt, col = "#f59e0b", sw = { stroke: col, strokeWidth: 2, fill: "none", vectorEffect: "non-scaling-stroke" as const };
                     return <g pointerEvents="none">{snapHit.kind === "end" ? <rect x={x - q} y={y - q} width={2 * q} height={2 * q} {...sw} />
                       : snapHit.kind === "center" ? <circle cx={x} cy={y} r={q} {...sw} />
@@ -818,13 +935,15 @@ export function App() {
       </div>
 
       <div className="status">
-        <span>{msg ? <b>{msg}</b> : <>{HINT[tool]}{preset ? <b> · {preset.name}</b> : null}</>}</span><span className="sp" />
+        <span>{msg ? <b>{msg}</b> : <>{hintFor(tool)}{preset ? <b> · {preset.name}</b> : null}</>}</span><span className="sp" />
         <span>Scale: <b>{doc ? scaleLabel : "–"}</b></span>
         <span>Snap: <b>{snapLabel}</b></span>
         <span>Wheel: <b>{wheelMode === "zoom" ? "zoom" : "pages"}</b></span>
         <span>Layer: <b>{layerOf(activeLayer)?.name ?? "–"}</b></span>
         <span>Page <b>{doc ? `${page} / ${pageCount}` : "–"}</b></span><span><b>{Math.round(zoom * 100)}%</b></span>
       </div>
+      {arrayOpen && <ArrayDialog feetPerUnit={fpu} onApply={doArray} onClose={() => setArrayOpen(false)} />}
+      {palette && <CommandPalette items={paletteItems} onClose={() => setPalette(false)} />}
       {ctx && <ContextMenu x={ctx.x} y={ctx.y} items={ctx.items} onClose={() => setCtx(null)} />}
     </div>
   );

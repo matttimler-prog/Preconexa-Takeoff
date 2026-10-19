@@ -1,7 +1,8 @@
 export type IconName =
   | "open" | "save" | "undo" | "redo" | "select" | "pan" | "length" | "polylength" | "area" | "count" | "calibrate" | "capture"
   | "zoomIn" | "zoomOut" | "fit" | "prev" | "next" | "wheel" | "pages" | "toolchest" | "layers" | "props" | "calc" | "list"
-  | "keys" | "trash" | "download" | "upload" | "chevron" | "plus" | "eye" | "close" | "snap" | "lock";
+  | "keys" | "trash" | "download" | "upload" | "chevron" | "plus" | "eye" | "close" | "snap" | "lock"
+  | "line" | "arrow" | "arc" | "polyline" | "dimension" | "callout" | "rect" | "ellipse" | "polygon" | "cloud" | "cloudplus" | "text" | "note" | "pen" | "highlight" | "perimeter" | "rectarea" | "ellipsearea" | "volume" | "cutout" | "cutoutrect" | "cutoutellipse" | "diameter" | "radius" | "radius3" | "angle" | "array" | "search";
 
 /** Preconexa's own line-icon set (24px grid, 1.8 stroke). */
 export function Icon({ name, size = 20 }: { name: IconName; size?: number }) {
@@ -41,6 +42,34 @@ export function Icon({ name, size = 20 }: { name: IconName; size?: number }) {
     case "eye": body = <>{p("M2 12s4-7 10-7 10 7 10 7-4 7-10 7S2 12 2 12z")}<circle cx="12" cy="12" r="3" /></>; break;
     case "snap": body = <>{p("M6 3v8a6 6 0 0 0 12 0V3")}{p("M6 7h4")}{p("M14 7h4")}</>; break;
     case "lock": body = <><rect x="5" y="11" width="14" height="9" rx="2" />{p("M8 11V8a4 4 0 0 1 8 0v3")}</>; break;
+    case "line": body = p("M5 19L19 5"); break;
+    case "arrow": body = <>{p("M5 19L19 5")}{p("M10 5h9v9")}</>; break;
+    case "arc": body = p("M4 18a10 10 0 0 1 16 0"); break;
+    case "polyline": body = p("M3 17l5-8 5 6 8-9"); break;
+    case "dimension": body = <>{p("M5 19L19 5")}{p("M3 17l4 4")}{p("M17 3l4 4")}</>; break;
+    case "callout": body = p("M4 4h16v10h-9l-4 4v-4H4z"); break;
+    case "rect": body = <rect x="4" y="6" width="16" height="12" />; break;
+    case "ellipse": body = <ellipse cx="12" cy="12" rx="9" ry="6" />; break;
+    case "polygon": body = p("M5 8l7-4 7 6-3 9H7z"); break;
+    case "cloud": body = p("M7 18h10a4 4 0 0 0 .5-8A5.5 5.5 0 0 0 7 9a4.5 4.5 0 0 0 0 9z"); break;
+    case "cloudplus": body = <>{p("M7 18h10a4 4 0 0 0 .5-8A5.5 5.5 0 0 0 7 9a4.5 4.5 0 0 0 0 9z")}{p("M12 11v4")}{p("M10 13h4")}</>; break;
+    case "text": body = <>{p("M5 6h14")}{p("M12 6v13")}{p("M9 19h6")}</>; break;
+    case "note": body = <>{p("M5 4h14v12l-5 4H5z")}{p("M14 20v-4h5")}</>; break;
+    case "pen": body = <>{p("M4 20l1-4L16 5l3 3L8 19z")}{p("M14 7l3 3")}</>; break;
+    case "highlight": body = <>{p("M6 18l-1 3 3-1 9-9-2-2z")}{p("M14 9l3-3 2 2-3 3")}{p("M3 22h18")}</>; break;
+    case "perimeter": body = <rect x="5" y="6" width="14" height="12" strokeDasharray="3 2" />; break;
+    case "rectarea": body = <rect x="4" y="6" width="16" height="12" fill="currentColor" fillOpacity="0.18" />; break;
+    case "ellipsearea": body = <ellipse cx="12" cy="12" rx="9" ry="6" fill="currentColor" fillOpacity="0.18" />; break;
+    case "volume": body = <>{p("M12 3l8 4v10l-8 4-8-4V7z")}{p("M4 7l8 4 8-4")}{p("M12 11v10")}</>; break;
+    case "cutout": body = <>{p("M4 5h16v14H4z")}<path d="M9 9h6v6H9z" fill="currentColor" fillOpacity="0.25" /></>; break;
+    case "cutoutrect": body = <><rect x="4" y="5" width="16" height="14" /><rect x="8" y="9" width="8" height="6" fill="currentColor" fillOpacity="0.25" /></>; break;
+    case "cutoutellipse": body = <><rect x="4" y="5" width="16" height="14" /><ellipse cx="12" cy="12" rx="4.5" ry="3" fill="currentColor" fillOpacity="0.25" /></>; break;
+    case "diameter": body = <><circle cx="12" cy="12" r="8" />{p("M4 12h16")}</>; break;
+    case "radius": body = <><circle cx="12" cy="12" r="8" />{p("M12 12l5.6-5.6")}<circle cx="12" cy="12" r="1" /></>; break;
+    case "radius3": body = <>{p("M4 18a10 10 0 0 1 16 0")}<circle cx="4" cy="18" r="1.2" /><circle cx="12" cy="8" r="1.2" /><circle cx="20" cy="18" r="1.2" /></>; break;
+    case "angle": body = <>{p("M4 19h16")}{p("M4 19L15 5")}{p("M11 19a7 7 0 0 0-2-5")}</>; break;
+    case "array": body = <><rect x="4" y="4" width="6" height="6" /><rect x="14" y="4" width="6" height="6" /><rect x="4" y="14" width="6" height="6" /><rect x="14" y="14" width="6" height="6" /></>; break;
+    case "search": body = <><circle cx="11" cy="11" r="6" />{p("M20 20l-4.5-4.5")}</>; break;
     default: body = <>{p("M6 6l12 12")}{p("M18 6L6 18")}</>;
   }
   return <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">{body}</svg>;

@@ -1,3 +1,4 @@
+import { TOOLS, keyLabel } from "./tools";
 /** View + input logic with no DOM dependencies, so it can be tested. */
 export type WheelMode = "zoom" | "page";
 export type WheelAction = { type: "zoom"; factor: number } | { type: "page"; dir: 1 | -1 } | { type: "scroll" };
@@ -41,16 +42,20 @@ export function zoomAt(v: View, cx: number, cy: number, factor: number): View {
 export const fitWidthZoom = (viewportW: number, pageW: number, margin = 24) => clampZoom((viewportW - margin) / pageW);
 
 export type Command =
-  | "tool:select" | "tool:pan" | "tool:length" | "tool:polylength" | "tool:area" | "tool:count" | "tool:calibrate" | "tool:capture"
+  | `tool:${string}`
   | "page:next" | "page:prev" | "page:first" | "page:last"
   | "zoom:in" | "zoom:out" | "zoom:fit" | "wheel:toggle"
-  | "undo" | "redo" | "delete" | "finish" | "cancel" | "backspace-point" | "snap:toggle" | "duplicate" | "lock:toggle";
+  | "undo" | "redo" | "delete" | "finish" | "cancel" | "backspace-point" | "snap:toggle" | "duplicate" | "lock:toggle" | "array" | "palette";
 
-export type KeyEvt = { key: string; shiftKey: boolean; altKey: boolean; ctrlKey: boolean; metaKey: boolean };
+export type KeyEvt = { key: string; code?: string; shiftKey: boolean; altKey: boolean; ctrlKey: boolean; metaKey: boolean };
 
-/** Shortcut map. Letters follow the common PDF-markup conventions (V select, L line, Shift+N polyline, Shift+Alt+A area, Shift+Alt+C count). */
+/**
+ * Shortcut map. Letters follow the common PDF-markup conventions: plain letters draw markups (L line, R rectangle,
+ * C cloud...), Shift+Alt+letter measures (Shift+Alt+A area, Shift+Alt+C count), and 1-9 are one-key shortcuts for the measure tools.
+ */
 export function commandForKey(e: KeyEvt): Command | null {
-  const k = e.key.length === 1 ? e.key.toLowerCase() : e.key;
+  // With Alt held, e.key can be a symbol on some keyboards, so read the physical key when we have it.
+  const k = e.altKey && e.code?.startsWith("Key") ? e.code.slice(3).toLowerCase() : e.key.length === 1 ? e.key.toLowerCase() : e.key;
   const mod = e.ctrlKey || e.metaKey;
   if (mod) {
     if (k === "z") return e.shiftKey ? "redo" : "undo";
@@ -59,23 +64,23 @@ export function commandForKey(e: KeyEvt): Command | null {
     if (k === "ArrowLeft") return "page:prev";
     if (k === "0") return "zoom:fit";
     if (k === "d") return "duplicate";
-    return null;
-  }
-  if (e.shiftKey && e.altKey) { if (k === "a") return "tool:area"; if (k === "c") return "tool:count"; return null; }
-  if (e.shiftKey) {
-    if (k === "n") return "tool:polylength";
-    if (k === "v") return "tool:pan";
-    if (k === "s") return "tool:capture";
     if (k === "l") return "lock:toggle";
+    if (k === "k") return "palette";
     return null;
   }
-  if (e.altKey) return null;
+  if (e.altKey && !e.shiftKey) return null;
+  if (e.shiftKey && e.altKey && k === "k") return "tool:calibrate";
+  const hit = TOOLS.find((t) => t.key && t.key.key === k && !!t.key.shift === e.shiftKey && !!t.key.alt === e.altKey);
+  if (hit) return `tool:${hit.id}`;
+  if (e.shiftKey || e.altKey) {
+    if (!e.altKey && k === "v") return "tool:pan";
+    if (!e.altKey && k === "s") return "tool:capture";
+    return null;
+  }
+  const al = TOOLS.find((t) => t.alias === k);
+  if (al) return `tool:${al.id}`;
   switch (k) {
     case "v": return "tool:select";
-    case "l": return "tool:length";
-    case "a": return "tool:area";
-    case "c": return "tool:count";
-    case "k": return "tool:calibrate";
     case "w": return "wheel:toggle";
     case "s": return "snap:toggle";
     case "+": case "=": return "zoom:in";
@@ -94,9 +99,9 @@ export function commandForKey(e: KeyEvt): Command | null {
 
 export const SHORTCUT_HELP: [string, string][] = [
   ["Wheel", "Zoom at cursor (or change page in page mode)"], ["W", "Toggle wheel: zoom / page"], ["Ctrl+Wheel", "Always zoom"],
-  ["Alt/Shift+Wheel", "Scroll"], ["Space+drag / middle drag", "Pan"], ["V", "Select"], ["Shift+V", "Pan tool"],
-  ["L", "Length (2 points)"], ["Shift+N", "Polylength"], ["A / Shift+Alt+A", "Area"], ["C / Shift+Alt+C", "Count"],
-  ["K", "Calibrate"], ["S", "Snap on / off"], ["Shift+S", "Capture symbol from print"], ["Shift+L", "Lock / unlock selected"], ["Ctrl+D", "Duplicate selected"], ["Right-click", "Markup options"], ["Shift", "Hold to constrain 0/45/90°"],
+  ["Alt/Shift+Wheel", "Scroll"], ["Space+drag / middle drag", "Pan"], ["V", "Select"], ["Shift+V", "Pan tool"], ["Ctrl+K", "Search every command"],
+  ...TOOLS.map((t): [string, string] => [`${keyLabel(t.key)}${t.alias ? ` or ${t.alias}` : ""}`.replace(/^ or /, ""), t.label]).filter(([k]) => k !== ""),
+  ["Shift+Alt+K", "Calibrate scale"], ["S", "Snap on / off"], ["Shift+S", "Capture symbol from print"], ["Ctrl+L", "Lock / unlock selected"], ["Ctrl+D", "Duplicate selected"], ["Right-click", "Markup options"], ["Shift", "Hold to constrain 0/45/90°"],
   ["Enter / double-click", "Finish"], ["Backspace", "Remove last point"], ["Esc", "Cancel"], ["Delete", "Delete selected"],
   ["Ctrl+Z / Ctrl+Y", "Undo / Redo"], ["Ctrl+←/→, PgUp/PgDn", "Previous / next page"], ["Home / End", "First / last page"],
   ["+ / -", "Zoom"], ["Ctrl+0", "Fit width"],

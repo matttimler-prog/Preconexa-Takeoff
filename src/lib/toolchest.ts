@@ -1,10 +1,13 @@
 import type { Kind } from "./takeoff";
+import { KINDS as ALL_KINDS } from "./takeoff";
+import type { Shape } from "./shapes";
+import { CLOSED } from "./shapes";
 
 export type SymbolShape = "circle" | "square" | "triangle" | "diamond" | "cross" | "image";
 export type SymbolDef = { shape: SymbolShape; text?: string; image?: string; size: number };
 export type ToolPreset = {
   id: string; name: string; kind: Kind; color: string; lineWidth: number;
-  label: string; layerName?: string; symbol?: SymbolDef;
+  label: string; layerName?: string; symbol?: SymbolDef; shape?: Shape; depth?: number; text?: string;
 };
 export type ToolSet = { id: string; name: string; tools: ToolPreset[] };
 export type ToolChest = { version: 1; sets: ToolSet[] };
@@ -58,7 +61,8 @@ export const renameSet = (c: ToolChest, setId: string, name: string): ToolChest 
 
 export const exportChest = (c: ToolChest) => JSON.stringify(c, null, 1);
 
-const KINDS = ["length", "area", "count"];
+const KINDS: string[] = ALL_KINDS;
+const SHAPE_NAMES: string[] = [...CLOSED, "polyline", "arc", "line", "arrow", "text", "callout", "pen", "dimension", "point", "note", "angle"];
 const SHAPES = ["circle", "square", "triangle", "diamond", "cross", "image"];
 const str = (v: unknown, d = "") => (typeof v === "string" ? v : d);
 const num = (v: unknown, d: number) => (typeof v === "number" && isFinite(v) ? v : d);
@@ -82,7 +86,8 @@ export function importChest(text: string, into: ToolChest): { chest: ToolChest; 
         ? { shape: sy.shape as SymbolShape, text: str(sy.text) || undefined, image: str(sy.image).startsWith("data:image/") ? str(sy.image) : undefined, size: Math.min(80, Math.max(4, num(sy.size, 14))) }
         : undefined;
       tools.push({ id: newId("tool"), name: str(o.name), kind: o.kind as Kind, color: /^#[0-9a-fA-F]{6}$/.test(str(o.color)) ? str(o.color) : "#2563eb",
-        lineWidth: Math.min(12, Math.max(1, num(o.lineWidth, 2))), label: str(o.label) || str(o.name), layerName: str(o.layerName) || undefined, symbol });
+        lineWidth: Math.min(12, Math.max(1, num(o.lineWidth, 2))), label: str(o.label) || str(o.name), layerName: str(o.layerName) || undefined, symbol,
+        shape: SHAPE_NAMES.includes(str(o.shape)) ? (o.shape as Shape) : undefined, depth: typeof o.depth === "number" && o.depth > 0 ? o.depth : undefined, text: str(o.text) || undefined });
       addedTools++;
     }
     out.push({ id: newId("set"), name: str((s as ToolSet).name, "Imported"), tools });

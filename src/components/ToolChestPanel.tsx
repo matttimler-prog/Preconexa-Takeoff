@@ -1,3 +1,4 @@
+import { UNITS } from "../lib/takeoff";
 import { useRef, useState } from "react";
 import { SymbolIcon } from "./SymbolMark";
 import { ToolChest, ToolPreset, addSet, exportChest, importChest, removeSet, removeTool, renameSet } from "../lib/toolchest";
@@ -41,7 +42,7 @@ export function ToolChestPanel({ chest, setChest, activeId, onArm, onCapture, on
               <div key={t.id} onClick={() => onArm(t)} style={{ display: "flex", alignItems: "center", gap: 8, padding: "3px 6px", cursor: "pointer", borderRadius: 4, background: activeId === t.id ? "#dbeafe" : "transparent" }}>
                 <SymbolIcon symbol={t.symbol} color={t.color} kind={t.kind} />
                 <span style={{ flex: 1 }}>{t.name}</span>
-                <small style={{ color: "#777" }}>{t.kind === "count" ? "EA" : t.kind === "length" ? "LF" : "SF"}</small>
+                <small style={{ color: "#777" }}>{UNITS[t.kind]}</small>
                 <button title="Remove tool" onClick={(e) => { e.stopPropagation(); setChest(removeTool(chest, s.id, t.id)); }}>×</button>
               </div>
             )))}

@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import { TOOLS } from "./tools";
 import { clampZoom, commandForKey, fitWidthZoom, resolveWheel, stepAccumulator, zoomAt, MAX_ZOOM, MIN_ZOOM } from "./nav";
 
 const w = (o: Partial<{ deltaY: number; ctrlKey: boolean; altKey: boolean; shiftKey: boolean }> = {}) => ({ deltaY: 100, ctrlKey: false, altKey: false, shiftKey: false, ...o });
@@ -38,13 +39,9 @@ describe("zoomAt", () => {
   });
 });
 describe("hotkeys", () => {
-  it("maps tools and navigation", () => {
+  it("maps navigation and editing", () => {
     expect(commandForKey(key("v"))).toBe("tool:select");
     expect(commandForKey(key("V", { shiftKey: true }))).toBe("tool:pan");
-    expect(commandForKey(key("l"))).toBe("tool:length");
-    expect(commandForKey(key("N", { shiftKey: true }))).toBe("tool:polylength");
-    expect(commandForKey(key("A", { shiftKey: true, altKey: true }))).toBe("tool:area");
-    expect(commandForKey(key("C", { shiftKey: true, altKey: true }))).toBe("tool:count");
     expect(commandForKey(key("w"))).toBe("wheel:toggle");
     expect(commandForKey(key("ArrowRight", { ctrlKey: true }))).toBe("page:next");
     expect(commandForKey(key("ArrowLeft", { ctrlKey: true }))).toBe("page:prev");
@@ -54,8 +51,40 @@ describe("hotkeys", () => {
     expect(commandForKey(key("y", { ctrlKey: true }))).toBe("redo");
     expect(commandForKey(key("s"))).toBe("snap:toggle");
     expect(commandForKey(key("S", { shiftKey: true }))).toBe("tool:capture");
-    expect(commandForKey(key("L", { shiftKey: true }))).toBe("lock:toggle");
+    expect(commandForKey(key("l", { ctrlKey: true }))).toBe("lock:toggle");
     expect(commandForKey(key("d", { ctrlKey: true }))).toBe("duplicate");
-    expect(commandForKey(key("q"))).toBeNull();
+    expect(commandForKey(key("k", { ctrlKey: true }))).toBe("palette");
+    expect(commandForKey(key("F9"))).toBeNull();
+  });
+  it("plain letters draw markups", () => {
+    expect(commandForKey(key("l"))).toBe("tool:line");
+    expect(commandForKey(key("a"))).toBe("tool:arrow");
+    expect(commandForKey(key("r"))).toBe("tool:rect");
+    expect(commandForKey(key("e"))).toBe("tool:ellipse");
+    expect(commandForKey(key("c"))).toBe("tool:cloud");
+    expect(commandForKey(key("k"))).toBe("tool:cloudplus");
+    expect(commandForKey(key("q"))).toBe("tool:callout");
+    expect(commandForKey(key("C", { shiftKey: true }))).toBe("tool:arc");
+    expect(commandForKey(key("N", { shiftKey: true }))).toBe("tool:polyline");
+    expect(commandForKey(key("L", { shiftKey: true }))).toBe("tool:dimension");
+  });
+  it("Shift+Alt+letter measures, with one-key aliases", () => {
+    expect(commandForKey(key("A", { shiftKey: true, altKey: true }))).toBe("tool:area");
+    expect(commandForKey(key("C", { shiftKey: true, altKey: true }))).toBe("tool:count");
+    expect(commandForKey(key("L", { shiftKey: true, altKey: true }))).toBe("tool:length");
+    expect(commandForKey(key("Q", { shiftKey: true, altKey: true }))).toBe("tool:polylength");
+    expect(commandForKey(key("P", { shiftKey: true, altKey: true }))).toBe("tool:perimeter");
+    expect(commandForKey(key("V", { shiftKey: true, altKey: true }))).toBe("tool:volume");
+    expect(commandForKey(key("K", { shiftKey: true, altKey: true }))).toBe("tool:calibrate");
+    expect(commandForKey({ ...key("Å", { shiftKey: true, altKey: true }), code: "KeyA" })).toBe("tool:area");
+    expect(commandForKey(key("1"))).toBe("tool:length");
+    expect(commandForKey(key("4"))).toBe("tool:area");
+    expect(commandForKey(key("6"))).toBe("tool:count");
+  });
+  it("no two tools share a shortcut", () => {
+    const seen = new Set<string>();
+    for (const t of TOOLS) for (const id of [t.key && `${t.key.key}|${!!t.key.shift}|${!!t.key.alt}`, t.alias && `alias|${t.alias}`]) {
+      if (!id) continue; expect(seen.has(id)).toBe(false); seen.add(id);
+    }
   });
 });

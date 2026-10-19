@@ -27,11 +27,11 @@ export function SymbolMark({ symbol, cx, cy, color, selected }: { symbol: Symbol
   );
 }
 
-export function SymbolIcon({ symbol, color, kind }: { symbol?: SymbolDef; color: string; kind: "length" | "area" | "count" }) {
+export function SymbolIcon({ symbol, color, kind }: { symbol?: SymbolDef; color: string; kind: string }) {
   return (
     <svg width={24} height={24} viewBox="0 0 24 24" style={{ flex: "none" }}>
       {symbol ? <SymbolMark symbol={{ ...symbol, size: 18 }} cx={12} cy={12} color={color} />
-        : kind === "length" ? <path d="M3,18 L10,8 L14,14 L21,5" fill="none" stroke={color} strokeWidth={2.5} />
+        : kind !== "area" && kind !== "volume" && kind !== "cutout" ? <path d="M3,18 L10,8 L14,14 L21,5" fill="none" stroke={color} strokeWidth={2.5} />
         : <polygon points="4,6 20,4 21,18 6,20" fill={color + "44"} stroke={color} strokeWidth={2} />}
     </svg>
   );

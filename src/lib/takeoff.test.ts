@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
-import { deleteLayer, quantity, toCsv } from "./takeoff";
-import type { Takeoff } from "./takeoff";
+import { deleteLayer, measureLabel, quantity, toCsv } from "./takeoff";
+import type { Measurement, Takeoff } from "./takeoff";
 
 const t: Takeoff = {
   layers: [{ id: "a", name: "Power", color: "#f00", visible: true }, { id: "b", name: "Lights", color: "#0f0", visible: true }],
@@ -51,5 +51,47 @@ describe("scale notes", () => {
     const a = setScale(base, [1, 2], 0.1, "auto-detected");
     expect(a.scaleNote).toEqual({ 1: "auto-detected", 2: "auto-detected" });
     expect(setScale(a, [1], 0.2).scaleNote).toEqual({ 2: "auto-detected" });
+  });
+});
+
+describe("new measurement kinds", () => {
+  const P = (x: number, y: number) => ({ x, y });
+  const base = (o: Partial<Measurement>): Measurement => ({ id: "m", layerId: "l1", kind: "length", page: 1, label: "x", pts: [], ...o });
+  const f = 0.1; // feet per page unit
+  it("perimeter, rect area, volume, diameter, radius, angle", () => {
+    expect(quantity(base({ kind: "perimeter", shape: "rect", pts: [P(0, 0), P(100, 50)] }), f)).toBeCloseTo(30, 9);
+    expect(quantity(base({ kind: "area", shape: "rect", pts: [P(0, 0), P(100, 50)] }), f)).toBeCloseTo(50, 9);
+    expect(quantity(base({ kind: "volume", shape: "rect", pts: [P(0, 0), P(100, 50)], depth: 0.5 }), f)).toBeCloseTo(25, 9);
+    expect(quantity(base({ kind: "volume", pts: [P(0, 0), P(1, 0), P(1, 1)] }), f)).toBeNull();
+    expect(quantity(base({ kind: "diameter", shape: "diameter", pts: [P(0, 0), P(100, 0)] }), f)).toBeCloseTo(10, 9);
+    expect(quantity(base({ kind: "radius", shape: "circle", pts: [P(0, 0), P(30, 0)] }), f)).toBeCloseTo(3, 9);
+    expect(quantity(base({ kind: "radius", shape: "arc", pts: [P(10, 0), P(0, 10), P(-10, 0)] }), f)).toBeCloseTo(1, 9);
+    expect(quantity(base({ kind: "angle", shape: "angle", pts: [P(1, 0), P(0, 0), P(0, 1)] }), undefined)).toBeCloseTo(90, 9);
+    expect(quantity(base({ kind: "markup", shape: "cloud", pts: [P(0, 0)] }), f)).toBeNull();
+  });
+  it("cutouts subtract from the area in the summary", () => {
+    const t: Takeoff = { layers: [{ id: "l1", name: "Floor", color: "#000", visible: true }], feetPerUnit: { 1: f }, measurements: [
+      base({ id: "a", kind: "area", label: "Slab", shape: "rect", pts: [P(0, 0), P(100, 100)] }),
+      base({ id: "c", kind: "cutout", label: "Slab", shape: "rect", pts: [P(0, 0), P(10, 10)] })] };
+    const s = summarize(t);
+    expect(s.length).toBe(1); expect(s[0].qty).toBeCloseTo(100 - 1, 9); expect(s[0].unit).toBe("SF");
+  });
+  it("labels read like a dimension and never lie about a missing scale", () => {
+    expect(measureLabel(base({ pts: [P(0, 0), P(125, 0)] }), f)).toBe("12'-6\"");
+    expect(measureLabel(base({ pts: [P(0, 0), P(125, 0)] }), undefined)).toBe("set scale");
+    expect(measureLabel(base({ kind: "area", shape: "rect", pts: [P(0, 0), P(100, 50)] }), f)).toBe("50.0 SF");
+    expect(measureLabel(base({ kind: "volume", shape: "rect", pts: [P(0, 0), P(1, 1)] }), f)).toBe("needs depth");
+    expect(measureLabel(base({ kind: "count", pts: [P(0, 0)] }), f)).toBeNull();
+  });
+  it("plain markups stay out of summaries and CSV", () => {
+    const t: Takeoff = { layers: [{ id: "l1", name: "L", color: "#000", visible: true }], feetPerUnit: { 1: f }, measurements: [base({ kind: "markup", shape: "cloud", pts: [P(0, 0), P(1, 1), P(2, 0)] })] };
+    expect(summarize(t).length).toBe(0); expect(toCsv(t).split("\n").length).toBe(1);
+  });
+  it("csv is in drawing order and carries page position", () => {
+    const t: Takeoff = { layers: [{ id: "l1", name: "L", color: "#000", visible: true }], feetPerUnit: { 1: f, 2: f }, measurements: [
+      base({ id: "b", page: 2, label: "p2", pts: [P(0, 0), P(10, 0)] }), base({ id: "c", page: 1, label: "low", pts: [P(0, 400), P(10, 400)] }), base({ id: "d", page: 1, label: "high", pts: [P(0, 10), P(10, 10)] })] };
+    const rows = toCsv(t).split("\n").slice(1).map((r) => r.split(",")[5]);
+    expect(rows).toEqual(['"high"', '"low"', '"p2"']);
+    expect(toCsv(t).split("\n")[0]).toContain("x_in");
   });
 });
