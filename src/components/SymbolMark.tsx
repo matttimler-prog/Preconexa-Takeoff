@@ -6,6 +6,7 @@ export function SymbolMark({ symbol, cx, cy, color, selected }: { symbol: Symbol
   const common = { fill: "#ffffff", fillOpacity: 0.85, stroke: selected ? "#000" : color, strokeWidth: selected ? 3 : 1.5, vectorEffect: "non-scaling-stroke" as const };
   let shape: JSX.Element;
   switch (symbol.shape) {
+    case "ring": shape = <circle cx={cx} cy={cy} r={h} fill="none" stroke={selected ? "#000" : color} strokeWidth={selected ? 3 : 2} vectorEffect="non-scaling-stroke" />; break;
     case "square": shape = <rect x={cx - h} y={cy - h} width={s} height={s} {...common} />; break;
     case "triangle": shape = <polygon points={`${cx},${cy - h} ${cx + h},${cy + h} ${cx - h},${cy + h}`} {...common} />; break;
     case "diamond": shape = <polygon points={`${cx},${cy - h} ${cx + h},${cy} ${cx},${cy + h} ${cx - h},${cy}`} {...common} />; break;

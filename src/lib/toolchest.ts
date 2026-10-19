@@ -3,7 +3,7 @@ import { KINDS as ALL_KINDS } from "./takeoff";
 import type { Shape } from "./shapes";
 import { CLOSED } from "./shapes";
 
-export type SymbolShape = "circle" | "square" | "triangle" | "diamond" | "cross" | "image";
+export type SymbolShape = "circle" | "square" | "triangle" | "diamond" | "cross" | "image" | "ring";
 export type SymbolDef = { shape: SymbolShape; text?: string; image?: string; size: number };
 export type ToolPreset = {
   id: string; name: string; kind: Kind; color: string; lineWidth: number;

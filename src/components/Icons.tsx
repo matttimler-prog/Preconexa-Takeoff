@@ -2,7 +2,7 @@ export type IconName =
   | "open" | "save" | "undo" | "redo" | "select" | "pan" | "length" | "polylength" | "area" | "count" | "calibrate" | "capture"
   | "zoomIn" | "zoomOut" | "fit" | "prev" | "next" | "wheel" | "pages" | "toolchest" | "layers" | "props" | "calc" | "list"
   | "keys" | "trash" | "download" | "upload" | "chevron" | "plus" | "eye" | "close" | "snap" | "lock"
-  | "line" | "arrow" | "arc" | "polyline" | "dimension" | "callout" | "rect" | "ellipse" | "polygon" | "cloud" | "cloudplus" | "text" | "note" | "pen" | "highlight" | "perimeter" | "rectarea" | "ellipsearea" | "volume" | "cutout" | "cutoutrect" | "cutoutellipse" | "diameter" | "radius" | "radius3" | "angle" | "array" | "search" | "cover" | "stamp" | "typewriter" | "link" | "image" | "underline" | "strike" | "squiggly" | "hltext" | "sketchrect" | "sketchellipse" | "viewport" | "dynfill" | "eraser" | "bookmark" | "searchdoc" | "group" | "export";
+  | "line" | "arrow" | "arc" | "polyline" | "dimension" | "callout" | "rect" | "ellipse" | "polygon" | "cloud" | "cloudplus" | "text" | "note" | "pen" | "highlight" | "perimeter" | "rectarea" | "ellipsearea" | "volume" | "cutout" | "cutoutrect" | "cutoutellipse" | "diameter" | "radius" | "radius3" | "angle" | "array" | "search" | "cover" | "autocount" | "stamp" | "typewriter" | "link" | "image" | "underline" | "strike" | "squiggly" | "hltext" | "sketchrect" | "sketchellipse" | "viewport" | "dynfill" | "eraser" | "bookmark" | "searchdoc" | "group" | "export";
 
 /** Preconexa's own line-icon set (24px grid, 1.8 stroke). */
 export function Icon({ name, size = 20 }: { name: IconName; size?: number }) {
@@ -70,6 +70,7 @@ export function Icon({ name, size = 20 }: { name: IconName; size?: number }) {
     case "angle": body = <>{p("M4 19h16")}{p("M4 19L15 5")}{p("M11 19a7 7 0 0 0-2-5")}</>; break;
     case "array": body = <><rect x="4" y="4" width="6" height="6" /><rect x="14" y="4" width="6" height="6" /><rect x="4" y="14" width="6" height="6" /><rect x="14" y="14" width="6" height="6" /></>; break;
     case "search": body = <><circle cx="11" cy="11" r="6" />{p("M20 20l-4.5-4.5")}</>; break;
+    case "autocount": body = <><rect x="3" y="3" width="8" height="8" strokeDasharray="2 2" /><circle cx="17" cy="7" r="3" /><circle cx="7" cy="17" r="3" /><circle cx="17" cy="17" r="3" /></>; break;
     case "cover": body = <><rect x="4" y="6" width="16" height="9" fill="currentColor" fillOpacity="0.15" />{p("M8 18h8")}{p("M12 18v3")}{p("M8 10.5h8")}</>; break;
     case "stamp": body = <>{p("M4 12h16v6H4z")}{p("M8 12V9a4 4 0 0 1 8 0v3")}{p("M7 21h10")}</>; break;
     case "typewriter": body = <>{p("M5 6h14")}{p("M12 6v12")}{p("M9 18h6")}{p("M18 14v6")}</>; break;

@@ -32,6 +32,9 @@ import { boxesInRect, findUrls, lineRects, parseLinkTarget, safeUrl, searchBoxes
 import type { Rect, TBox, TextItem } from "./lib/textboxes";
 import { CUSTOM_STAMP, STAMPS, stampText, stampWithDate } from "./lib/stamps";
 import { regionPolygon } from "./lib/rasterfill";
+import type { Raster } from "./lib/rasterfill";
+import { findMatchesTpl, templateFrom } from "./lib/automatch";
+import type { Img } from "./lib/automatch";
 import { History, newHistory, push, redo as redoH, undo as undoH, canRedo, canUndo } from "./lib/history";
 import { Measurement, Takeoff, UNITS, deleteLayer, ensureLayer, measureLabel, quantity, scaleFor, setScale, shapeOf, summarize, summaryCsv, toCsv } from "./lib/takeoff";
 import { ToolChest, ToolPreset, addTool, defaultChest, newId } from "./lib/toolchest";
@@ -140,6 +143,9 @@ export function App() {
   const imgAt = useRef<Pt | null>(null);
   const imgDef = useRef<ToolDef | null>(null);
   const countLabel = useRef<string | null>(null);
+  type AutoM = { cx: number; cy: number; w: number; h: number; score: number; off?: boolean };
+  const [auto, setAuto] = useState<{ ms: AutoM[]; thr: number; sample: string; rot: boolean } | null>(null);
+  const autoRef = useRef<{ tpl: Img; s: number; box: Pt[]; pw: number; ph: number } | null>(null);
   const [showNums, setShowNums] = useState(true);
 
   const t = hist.present;
@@ -377,9 +383,69 @@ export function App() {
     const u = safeUrl(r.url); if (u) window.open(u, "_blank", "noopener,noreferrer");
   };
 
+  const renderRaster = async (pg: number): Promise<{ raster: Raster; s: number; canvas: HTMLCanvasElement; pw: number; ph: number }> => {
+    const p = await doc!.getPage(pg), base = p.getViewport({ scale: 1 });
+    const s = Math.min(3, 3200 / Math.max(base.width, base.height)), vp = p.getViewport({ scale: s });
+    const c = document.createElement("canvas"); c.width = Math.floor(vp.width); c.height = Math.floor(vp.height);
+    const cx = c.getContext("2d"); if (!cx) throw new Error("no canvas");
+    cx.fillStyle = "#fff"; cx.fillRect(0, 0, c.width, c.height);
+    await p.render({ canvasContext: cx, viewport: vp }).promise;
+    const im = cx.getImageData(0, 0, c.width, c.height);
+    return { raster: { w: im.width, h: im.height, data: im.data }, s, canvas: c, pw: base.width, ph: base.height };
+  };
+  const runAutoCount = async (pts: Pt[], rot: boolean) => {
+    if (!doc) return;
+    const bb = bboxOfPts(pts);
+    if (bb.w < 3 || bb.h < 3) { say("That box is too small. Drag a tight box around one symbol."); return; }
+    setBusy(true); say("Looking for matching symbols…"); await new Promise((r) => setTimeout(r, 40));
+    try {
+      const { raster, s, canvas, pw, ph } = await renderRaster(page);
+      const box = { x: bb.x * s, y: bb.y * s, w: bb.w * s, h: bb.h * s }, tpl = templateFrom(raster, box);
+      if (tpl.w < 6 || tpl.h < 6) { setBusy(false); say("That symbol is too small to match. Zoom the sheet and box it again, or use a bigger symbol."); return; }
+      await new Promise((r) => setTimeout(r, 20));
+      const ms = findMatchesTpl(raster, tpl, { threshold: 0.5, rotations: rot, maxMatches: 3000 });
+      const k = Math.min(1, 96 / Math.max(box.w, box.h)), o = document.createElement("canvas");
+      o.width = Math.max(1, Math.round(box.w * k)); o.height = Math.max(1, Math.round(box.h * k));
+      o.getContext("2d")?.drawImage(canvas, box.x, box.y, box.w, box.h, 0, 0, o.width, o.height);
+      autoRef.current = { tpl, s, box: pts, pw, ph };
+      setAuto({ ms: ms.map((m) => ({ cx: (m.x + m.w / 2) / s, cy: (m.y + m.h / 2) / s, w: m.w / s, h: m.h / s, score: m.score })), thr: 0.7, sample: o.toDataURL("image/png"), rot });
+      say(ms.length ? "Review the matches below, adjust sensitivity, click a box to include or exclude it, then count." : "No other copies found. Try a tighter box around one symbol, or turn on rotated copies.");
+    } catch { say("Couldn't read this page to search it."); }
+    setBusy(false);
+  };
+  const acceptAuto = async (allPages: boolean) => {
+    if (!auto || !autoRef.current) return;
+    const label = prompt("What are these? (e.g. duplex receptacle, 2x4 troffer)", countLabel.current ?? "");
+    if (label === null) return;
+    const name = label.trim() || "Counted item", ref = autoRef.current, size = Math.max(8, Math.min(60, Math.max(...auto.ms.map((m) => Math.max(m.w, m.h)).concat(8)) * 1.3));
+    const mk = (pg: number, centers: Pt[]): Measurement[] => centers.map((c) => ({ id: newId("m"), layerId: activeLayer, kind: "count" as const, shape: "point" as const, page: pg, label: name, pts: [c], color: "#16a34a", lineWidth: 2, symbol: { shape: "ring" as const, size } }));
+    const order = (a: Pt, b: Pt) => a.y - b.y || a.x - b.x;
+    const here = auto.ms.filter((m) => m.score >= auto.thr && !m.off).map((m) => ({ x: m.cx, y: m.cy })).sort(order);
+    const add: Measurement[] = mk(page, here);
+    let note = `Counted ${here.length} on page ${page}.`;
+    if (allPages) {
+      setBusy(true); let skipped = 0;
+      for (let pg = 1; pg <= pageCount; pg++) {
+        if (pg === page) continue;
+        say(`Searching page ${pg} of ${pageCount}…`); await new Promise((r) => setTimeout(r, 20));
+        try {
+          const r = await renderRaster(pg);
+          if (Math.abs(r.pw - ref.pw) > 2 || Math.abs(r.ph - ref.ph) > 2) { skipped++; continue; }
+          const ms = findMatchesTpl(r.raster, ref.tpl, { threshold: auto.thr, rotations: auto.rot, maxMatches: 3000 });
+          if (ms.length) add.push(...mk(pg, ms.map((m) => ({ x: (m.x + m.w / 2) / r.s, y: (m.y + m.h / 2) / r.s })).sort(order)));
+        } catch { skipped++; }
+      }
+      setBusy(false);
+      note = `Counted ${add.length} on ${new Set(add.map((m) => m.page)).size} page(s).` + (skipped ? ` ${skipped} page(s) skipped (different sheet size or unreadable).` : "");
+    }
+    if (add.length) apply((x) => ({ ...x, measurements: [...x.measurements, ...add] }));
+    countLabel.current = name; setAuto(null); autoRef.current = null; setTool("select"); say(note + " Undo (Ctrl+Z) removes the count. Check the marks against the sheet.");
+  };
+
   const commit = (def: ToolDef, pts0: Pt[]) => {
     if (!pts0.length) return;
     let pts = pts0;
+    if (def.ask === "auto") { setDraft([]); void runAutoCount(pts0, true); return; }
     if (MARKS.includes(def.shape)) { setDraft([]); void commitTextMark(def, pts0); return; }
     if (def.ask === "cover") { setDraft([]); void commitCover(pts0); return; }
     if (def.ask === "image") { imgAt.current = pts[0]; imgDef.current = def; setDraft([]); imgIn.current?.click(); return; }
@@ -683,6 +749,7 @@ export function App() {
 
   const onSvgClick = (e: React.MouseEvent<SVGSVGElement>) => {
     if (panStart.current?.moved || performance.now() - justDragged.current < 300) return;
+    if (auto) return;
     if (tool === "select") { setSelIds([]); return; }
     if (tool === "pan") { const h = hitTest(resolve(e, true).p); if (h && shapeOf(h.m) === "link") openLink(h.m); return; }
     if (tool === "capture" || tool === "eraser") return;
@@ -816,7 +883,7 @@ export function App() {
       case "lock:toggle": toggleLock(null); break;
       case "backspace-point": setDraft((d) => d.slice(0, -1)); break;
       case "finish": finish(); break;
-      case "cancel": if (ctx) setCtx(null); else if (drag.current) dragCancel(); else if (draft.length || capRect) { setDraft([]); setCapRect(null); } else if (selIds.length && tool === "select") setSelIds([]); else { setTool("select"); setPreset(null); countLabel.current = null; } break;
+      case "cancel": if (ctx) setCtx(null); else if (drag.current) dragCancel(); else if (draft.length || capRect) { setDraft([]); setCapRect(null); } else if (auto) { setAuto(null); autoRef.current = null; } else if (selIds.length && tool === "select") setSelIds([]); else { setTool("select"); setPreset(null); countLabel.current = null; } break;
     }
   };
   const arm = (p: ToolPreset) => { setPreset(p); setTool(toolForPreset(p.kind, p.shape).id); setDraft([]); };
@@ -1262,6 +1329,18 @@ export function App() {
         <div className="center">
           <div className="tabs"><div className="tab">{fileName || "No document open"}</div></div>
           <div className="viewer">
+            {auto && (() => {
+              const shown = auto.ms.filter((m) => m.score >= auto.thr), on = shown.filter((m) => !m.off).length;
+              return <div style={{ position: "absolute", top: 8, left: "50%", transform: "translateX(-50%)", zIndex: 6, background: "#111827f2", color: "#fff", padding: "8px 12px", borderRadius: 8, fontSize: 13, display: "flex", gap: 10, alignItems: "center", flexWrap: "wrap", maxWidth: "95%" }}>
+                <img src={auto.sample} alt="sample" style={{ height: 28, background: "#fff", borderRadius: 3 }} />
+                <span><b>{on}</b> found{shown.length !== on ? ` (${shown.length - on} excluded)` : ""}</span>
+                <label>Sensitivity <input type="range" min={0.5} max={0.95} step={0.01} value={auto.thr} onChange={(e) => setAuto({ ...auto, thr: Number(e.target.value) })} style={{ verticalAlign: "middle" }} /> {auto.thr.toFixed(2)}</label>
+                <label><input type="checkbox" checked={auto.rot} disabled={busy} onChange={(e) => { const r = autoRef.current; if (r) void runAutoCount(r.box, e.target.checked); }} /> rotated copies</label>
+                <button className="btn" disabled={busy || !on} onClick={() => void acceptAuto(false)}>Count these</button>
+                <button className="btn" disabled={busy || !on || pageCount < 2} onClick={() => void acceptAuto(true)}>Count on all pages</button>
+                <button className="btn" onClick={() => { setAuto(null); autoRef.current = null; }}>Cancel</button>
+              </div>;
+            })()}
             {tool === "count" && doc && (() => {
               const lab = preset?.label ?? countLabel.current, cur = lab ? countRows.find((r) => r.label === lab) : null;
               return <div style={{ position: "absolute", top: 8, left: "50%", transform: "translateX(-50%)", zIndex: 5, background: "#111827e6", color: "#fff", padding: "6px 12px", borderRadius: 6, fontSize: 13, pointerEvents: "none" }}>
@@ -1330,6 +1409,7 @@ export function App() {
                   })()}
                   {tool === "count" && cursor && preset?.symbol && <g opacity={0.5}><SymbolMark symbol={preset.symbol} cx={cursor.x} cy={cursor.y} color={preset.color} /></g>}
                   {hits.find((h) => h.page === page)?.rects.map((r, i) => <rect key={"hl" + i} x={r.x} y={r.y} width={r.w} height={r.h} fill="#facc15" fillOpacity={0.45} stroke="#ca8a04" strokeWidth={1} vectorEffect="non-scaling-stroke" pointerEvents="none" />)}
+                  {auto && auto.ms.map((m, i) => m.score >= auto.thr && <rect key={"am" + i} x={m.cx - m.w / 2} y={m.cy - m.h / 2} width={m.w} height={m.h} fill="#16a34a22" stroke={m.off ? "#dc2626" : "#16a34a"} strokeWidth={2} strokeDasharray={m.off ? "4 3" : undefined} vectorEffect="non-scaling-stroke" style={{ cursor: "pointer", pointerEvents: "all" }} onClick={(e) => { e.stopPropagation(); setAuto({ ...auto, ms: auto.ms.map((x, j) => (j === i ? { ...x, off: !x.off } : x)) }); }}><title>{`match ${Math.round(m.score * 100)}%. Click to ${m.off ? "include" : "exclude"}`}</title></rect>)}
                   {marq && <rect x={Math.min(marq.a.x, marq.b.x)} y={Math.min(marq.a.y, marq.b.y)} width={Math.abs(marq.b.x - marq.a.x)} height={Math.abs(marq.b.y - marq.a.y)} fill="#2563eb18" stroke="#2563eb" strokeDasharray="4 3" vectorEffect="non-scaling-stroke" pointerEvents="none" />}
                   {capRect && <rect x={Math.min(capRect.a.x, capRect.b.x)} y={Math.min(capRect.a.y, capRect.b.y)} width={Math.abs(capRect.b.x - capRect.a.x)} height={Math.abs(capRect.b.y - capRect.a.y)} fill="#2563eb22" stroke="#2563eb" strokeDasharray="4" vectorEffect="non-scaling-stroke" />}
                   {snapHit && (TOOL_BY_ID[tool] != null || tool === "calibrate" || liveMods) && (() => {

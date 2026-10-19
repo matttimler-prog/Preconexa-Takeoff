@@ -44,3 +44,8 @@ Vercel builds on every push to `main` (Vite, output `dist`).
 ## Round 4b
 - **Cover and replace text** (markup tool): drag over printed text, it is covered in white and you type the replacement (prefilled with the old text). Cover and text are grouped. The original is hidden, not deleted; exported PDFs include the cover.
 - **Count**: labeled Count button, key 6 or Shift+Alt+C. Name the item once, then every click counts it (a banner shows the running total). Marks are numbered; Counts panel (right rail) lists totals per item with "+ Count" to keep going.
+
+## Round 5: auto count
+- **Auto count similar symbols** (Shift+Alt+N, or Measure menu): drag a tight box around ONE symbol. The app renders the sheet, finds copies by pixel matching (rotated copies included), and shows them boxed for review. Adjust sensitivity, click a box to exclude or include it, then "Count these" or "Count on all pages" (same sheet size only). Counts become numbered ring marks you can still move or delete. Always check the result against the sheet: it is an assist, not an authority.
+- Test harness: `tools/backtest/` makes a synthetic electrical plan with known symbol positions (`gen_synthetic.py`) and scores the matcher (`run.mjs`). Synthetic results at sensitivity 0.7 with rotations: duplex 64-80% recall, switch 97-100%, light fixture 94-98%, with 0-3 false hits. Real prints not yet tested. Symbols touching a wall line are the weak spot.
+- Research on what reviewers praise: `docs/BLUEBEAM-FAVORITES.md`.

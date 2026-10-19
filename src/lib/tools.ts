@@ -6,7 +6,7 @@ export type Mode = "one" | "two" | "three" | "poly" | "free";
 export type KeySpec = { key: string; shift?: boolean; alt?: boolean };
 export type ToolDef = {
   id: string; label: string; kind: Kind; shape: Shape; mode: Mode; group: "markup" | "measure"; icon: string;
-  key?: KeySpec; alias?: string; ask?: "text" | "depth" | "dims" | "cover" | "link" | "image" | "stamp" | "scale"; hint: string;
+  key?: KeySpec; alias?: string; ask?: "text" | "depth" | "dims" | "cover" | "auto" | "link" | "image" | "stamp" | "scale"; hint: string;
 };
 
 const K = (key: string, shift = false, alt = false): KeySpec => ({ key, shift, alt });
@@ -53,6 +53,7 @@ export const TOOLS: ToolDef[] = [
   { id: "viewport", label: "Viewport scale", kind: "markup", shape: "viewport", mode: "two", group: "measure", icon: "viewport", key: K("w", true, true), ask: "scale", hint: "Drag a box around a detail, then enter its scale. Measurements inside use it." },
   { id: "dynfill", label: "Dynamic Fill", kind: "area", shape: "polygon", mode: "one", group: "measure", icon: "dynfill", key: K("j"), hint: "Click inside a closed room or space to measure it automatically." },
   { id: "count", label: "Count", kind: "count", shape: "point", mode: "one", group: "measure", icon: "count", key: K("c", true, true), alias: "6", hint: "Click each item." },
+  { id: "autocount", label: "Auto count similar symbols", kind: "count", shape: "rect", mode: "two", group: "measure", icon: "autocount", key: K("n", true, true), ask: "auto", hint: "Drag a tight box around ONE symbol. The app finds every copy on the sheet for you to review." },
   { id: "diameter", label: "Diameter", kind: "diameter", shape: "diameter", mode: "two", group: "measure", icon: "diameter", key: K("d", true, true), alias: "7", hint: "Click two points across the circle." },
   { id: "radius", label: "Radius", kind: "radius", shape: "circle", mode: "two", group: "measure", icon: "radius", key: K("u", true, true), alias: "8", hint: "Click the center, then a point on the edge." },
   { id: "radius3", label: "Radius (3 points)", kind: "radius", shape: "arc", mode: "three", group: "measure", icon: "radius3", hint: "Click three points on the curve." },
