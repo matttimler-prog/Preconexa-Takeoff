@@ -53,6 +53,8 @@ describe("flatten", () => {
     expect(types(take([m({ kind: "markup", shape: "underline", pts: rect })]))).toEqual(["poly"]);
     expect(types(take([m({ kind: "markup", shape: "hltext", pts: rect })]))).toEqual(["poly"]);
     expect(types(take([m({ kind: "markup", shape: "link", pts: rect })]))).toEqual(["box"]);
+    const wo = flattenPage(take([m({ kind: "markup", shape: "whiteout", pts: rect })]), 1);
+    expect(wo.length).toBe(1); expect((wo[0] as { fill: string }).fill).toBe("#ffffff");
     const st = flattenPage(take([m({ kind: "markup", shape: "stamp", pts: [P(5, 5)], text: "Approved" })]), 1);
     expect(st[0].t).toBe("box"); expect((st[1] as { text: string }).text).toBe("APPROVED");
     const vp = flattenPage(take([m({ kind: "markup", shape: "viewport", pts: rect, vpScale: 8 / 72 })]), 1);

@@ -55,6 +55,11 @@ export function ShapeView({ kind, shape, pts, color, lw, zoom, text, image, prev
       return <g>{image ? <image href={image} x={r.x} y={r.y} width={r.w} height={r.h} preserveAspectRatio="none" /> : null}
         <rect x={r.x} y={r.y} width={r.w} height={r.h} fill="transparent" stroke={selected ? "#000" : "#64748b"} strokeWidth={selected ? 2 : 1} strokeDasharray={image ? undefined : "4 3"} vectorEffect={VE} /></g>;
     }
+    case "whiteout": {
+      if (pts.length < 2) return <polyline points={list(pts)} {...line} />;
+      const [a, b] = pts;
+      return <rect x={Math.min(a.x, b.x)} y={Math.min(a.y, b.y)} width={Math.abs(b.x - a.x)} height={Math.abs(b.y - a.y)} fill={preview ? "#ffffffaa" : "#ffffff"} stroke={selected || preview ? "#000" : "none"} strokeDasharray={preview ? "4 3" : undefined} strokeWidth={1} vectorEffect={VE} />;
+    }
     case "underline": case "strike": case "squiggly": case "hltext": {
       if (pts.length < 2) return <polyline points={list(pts)} {...line} />;
       const [a, b] = pts, x0 = Math.min(a.x, b.x), x1 = Math.max(a.x, b.x), y0 = Math.min(a.y, b.y), y1 = Math.max(a.y, b.y), w = 1.4;

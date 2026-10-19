@@ -6,7 +6,7 @@ export type Mode = "one" | "two" | "three" | "poly" | "free";
 export type KeySpec = { key: string; shift?: boolean; alt?: boolean };
 export type ToolDef = {
   id: string; label: string; kind: Kind; shape: Shape; mode: Mode; group: "markup" | "measure"; icon: string;
-  key?: KeySpec; alias?: string; ask?: "text" | "depth" | "dims" | "link" | "image" | "stamp" | "scale"; hint: string;
+  key?: KeySpec; alias?: string; ask?: "text" | "depth" | "dims" | "cover" | "link" | "image" | "stamp" | "scale"; hint: string;
 };
 
 const K = (key: string, shift = false, alt = false): KeySpec => ({ key, shift, alt });
@@ -37,6 +37,7 @@ export const TOOLS: ToolDef[] = [
   { id: "strike", label: "Strikethrough text", kind: "markup", shape: "strike", mode: "two", group: "markup", icon: "strike", hint: "Drag a box over printed text to strike it out." },
   { id: "squiggly", label: "Squiggly underline", kind: "markup", shape: "squiggly", mode: "two", group: "markup", icon: "squiggly", hint: "Drag a box over printed text to underline it with a squiggle." },
   { id: "hltext", label: "Highlight text", kind: "markup", shape: "hltext", mode: "two", group: "markup", icon: "hltext", hint: "Drag a box over printed text to highlight the lines." },
+  { id: "cover", label: "Cover and replace text", kind: "markup", shape: "whiteout", mode: "two", group: "markup", icon: "cover", ask: "cover", hint: "Drag a box over printed text or lines. It is covered in white and you can type the replacement." },
   { id: "sketchrect", label: "Sketch rectangle to scale", kind: "markup", shape: "rect", mode: "one", group: "markup", icon: "sketchrect", ask: "dims", hint: "Click the corner, then type its size, e.g. 10' x 12'." },
   { id: "sketchellipse", label: "Sketch ellipse to scale", kind: "markup", shape: "ellipse", mode: "one", group: "markup", icon: "sketchellipse", ask: "dims", hint: "Click the corner of its box, then type the size, e.g. 6' x 4'." },
   { id: "length", label: "Length", kind: "length", shape: "polyline", mode: "two", group: "measure", icon: "length", key: K("l", true, true), alias: "1", hint: "Click two points." },

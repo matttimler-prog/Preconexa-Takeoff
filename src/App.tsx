@@ -98,7 +98,7 @@ export function App() {
   const [selIds, setSelIds] = useState<string[]>([]);
   const [chest, setChestState] = useState<ToolChest>(() => store.get<ToolChest>(CHEST_KEY) ?? defaultChest());
   const [leftTab, setLeftTab] = useState<"pages" | "chest" | "layers" | "search" | "bookmarks" | null>("pages");
-  const [rightTab, setRightTab] = useState<"props" | "qty" | "markups" | "keys" | null>("props");
+  const [rightTab, setRightTab] = useState<"props" | "qty" | "markups" | "keys" | "counts" | null>("props");
   const fileIn = useRef<HTMLInputElement>(null);
   const loadIn = useRef<HTMLInputElement>(null);
   const [fileName, setFileName] = useState("");
@@ -139,6 +139,8 @@ export function App() {
   const imgIn = useRef<HTMLInputElement>(null);
   const imgAt = useRef<Pt | null>(null);
   const imgDef = useRef<ToolDef | null>(null);
+  const countLabel = useRef<string | null>(null);
+  const [showNums, setShowNums] = useState(true);
 
   const t = hist.present;
   tRef.current = t;
@@ -271,7 +273,7 @@ export function App() {
       if (m.id === dragId || !t.layers.find((l) => l.id === m.layerId)?.visible) continue;
       const sh = shapeOf(m);
       if (m.kind === "count" || TEXTLIKE.includes(sh)) { centers.push(m.pts[0]); continue; }
-      if (MARKS.includes(sh) || sh === "link" || sh === "image") continue;
+      if (MARKS.includes(sh) || sh === "link" || sh === "image" || sh === "whiteout") continue;
       const o = outline(sh, m.pts), n = o.pts.length;
       for (let i = 0; i + 1 < n; i++) segs.push([o.pts[i].x, o.pts[i].y, o.pts[i + 1].x, o.pts[i + 1].y]);
       if (o.closed && n > 2) segs.push([o.pts[n - 1].x, o.pts[n - 1].y, o.pts[0].x, o.pts[0].y]);
@@ -339,6 +341,26 @@ export function App() {
     const add: Measurement[] = rects.map((r) => ({ id: newId("m"), layerId: activeLayer, kind: "markup", shape: def.shape, page, label: def.label, pts: [{ x: r.x, y: r.y }, { x: r.x + r.w, y: r.y + r.h }], color, groupId: gid }));
     apply((x) => ({ ...x, measurements: [...x.measurements, ...add] }));
   };
+  const commitCover = async (pts: Pt[]) => {
+    let boxes: TBox[] = [];
+    try { boxes = boxesInRect(await pageBoxes(page), pts[0], pts[1]); } catch { /* no text layer */ }
+    let r: Rect, prefill = "";
+    if (boxes.length) {
+      const x0 = Math.min(...boxes.map((b) => b.x)), y0 = Math.min(...boxes.map((b) => b.y)), x1 = Math.max(...boxes.map((b) => b.x + b.w)), y1 = Math.max(...boxes.map((b) => b.y + b.h));
+      r = { x: x0 - 1, y: y0 - 1, w: x1 - x0 + 2, h: y1 - y0 + 2 };
+      const sorted = [...boxes].sort((a, b) => a.y - b.y || a.x - b.x); let lastY = -1e9;
+      for (const b of sorted) { prefill += (prefill ? (Math.abs(b.y - lastY) > b.h * 0.5 ? " " : "") : "") + b.str; lastY = b.y; }
+      prefill = prefill.replace(/\s+/g, " ").trim();
+    } else { r = bboxOfPts(pts); say("No printed text in that box, so the area is covered as drawn."); }
+    if (r.w < 2 || r.h < 2) return;
+    const a = prompt("Type the replacement text. Clear it to just cover what's there.", prefill);
+    if (a === null) return;
+    const txt = a.trim(), gid = txt ? newId("g") : undefined, fs = textSize(zoom);
+    const add: Measurement[] = [{ id: newId("m"), layerId: activeLayer, kind: "markup", shape: "whiteout", page, label: "Cover", pts: [{ x: r.x, y: r.y }, { x: r.x + r.w, y: r.y + r.h }], groupId: gid }];
+    if (txt) add.push({ id: newId("m"), layerId: activeLayer, kind: "markup", shape: "typewriter", page, label: "Replacement text", text: txt, color: "#000000", pts: [{ x: r.x - fs * 0.4, y: r.y + r.h * 0.82 - fs * 1.15 }], groupId: gid });
+    apply((x) => ({ ...x, measurements: [...x.measurements, ...add] }));
+    setSelIds(add.map((m) => m.id));
+  };
   const makeUrlLinks = async () => {
     if (!doc) return;
     try {
@@ -359,17 +381,20 @@ export function App() {
     if (!pts0.length) return;
     let pts = pts0;
     if (MARKS.includes(def.shape)) { setDraft([]); void commitTextMark(def, pts0); return; }
+    if (def.ask === "cover") { setDraft([]); void commitCover(pts0); return; }
     if (def.ask === "image") { imgAt.current = pts[0]; imgDef.current = def; setDraft([]); imgIn.current?.click(); return; }
     const usePreset = preset && presetFits(preset, def) ? preset : null;
     let label = def.label, text = usePreset?.text, depth = usePreset?.depth, parentLayer: string | undefined, color = usePreset?.color;
     const extra: Partial<Measurement> = {};
     if (usePreset) label = usePreset.label;
     else if (def.kind === "cutout") label = "Cutout";
+    else if (def.kind === "count" && countLabel.current !== null) label = countLabel.current;
     else if (def.kind !== "markup" && askLabel) {
-      const a = prompt(`Label for this ${def.label.toLowerCase()} (e.g. 2x4 troffer, 3/4 EMT, Slab)`);
+      const a = prompt(def.kind === "count" ? "What are you counting? (e.g. duplex receptacle, 2x4 troffer). Every click after this counts the same thing. Esc stops." : `Label for this ${def.label.toLowerCase()} (e.g. 2x4 troffer, 3/4 EMT, Slab)`);
       if (a === null) { setDraft([]); return; }
       label = a.trim() || def.label;
     }
+    if (def.kind === "count" && !usePreset) countLabel.current = label;
     if (def.ask === "text" && text === undefined) {
       const a = prompt(def.id === "note" ? "Note text" : "Text");
       if (a === null) { setDraft([]); return; }
@@ -485,7 +510,7 @@ export function App() {
       const o = outline(sh, pts), n = o.pts.length; let edge = Infinity;
       for (let k = 0; k + 1 < n + (o.closed ? 1 : 0); k++) edge = Math.min(edge, nearestOnSegment(p, o.pts[k], o.pts[(k + 1) % n]).d);
       if (edge <= tol) return { m, vertex: null, onEdge: true };
-      const filled = m.kind === "area" || m.kind === "volume" || m.kind === "cutout" || ["highlight", "link", "image", "hltext", "underline", "strike", "squiggly"].includes(sh);
+      const filled = m.kind === "area" || m.kind === "volume" || m.kind === "cutout" || ["highlight", "link", "image", "hltext", "underline", "strike", "squiggly", "whiteout"].includes(sh);
       if (filled && o.closed && inPoly(p, o.pts)) return { m, vertex: null, onEdge: false };
     }
     return null;
@@ -758,7 +783,7 @@ export function App() {
     if (cmd.startsWith("tool:")) {
       const id = cmd.slice(5), d = TOOL_BY_ID[id];
       if (id === "select" || id === "pan" || id === "calibrate" || id === "capture" || id === "eraser" || d) {
-        setTool(id); setDraft([]); penRef.current = null; setSnapHit(null);
+        setTool(id); setDraft([]); penRef.current = null; setSnapHit(null); countLabel.current = null;
         if (id !== "select" && !(d && preset && presetFits(preset, d))) setPreset(null);
       }
       return;
@@ -791,7 +816,7 @@ export function App() {
       case "lock:toggle": toggleLock(null); break;
       case "backspace-point": setDraft((d) => d.slice(0, -1)); break;
       case "finish": finish(); break;
-      case "cancel": if (ctx) setCtx(null); else if (drag.current) dragCancel(); else if (draft.length || capRect) { setDraft([]); setCapRect(null); } else if (selIds.length && tool === "select") setSelIds([]); else { setTool("select"); setPreset(null); } break;
+      case "cancel": if (ctx) setCtx(null); else if (drag.current) dragCancel(); else if (draft.length || capRect) { setDraft([]); setCapRect(null); } else if (selIds.length && tool === "select") setSelIds([]); else { setTool("select"); setPreset(null); countLabel.current = null; } break;
     }
   };
   const arm = (p: ToolPreset) => { setPreset(p); setTool(toolForPreset(p.kind, p.shape).id); setDraft([]); };
@@ -1075,6 +1100,32 @@ export function App() {
     </>
   );
 
+  const countNo = useMemo(() => {
+    const seen = new Map<string, number>(), no = new Map<string, number>();
+    for (const m of t.measurements) if (m.kind === "count") { const k = `${m.layerId}|${m.label}`, n = (seen.get(k) ?? 0) + 1; seen.set(k, n); no.set(m.id, n); }
+    return no;
+  }, [t.measurements]);
+  const countRows = useMemo(() => {
+    const rows = new Map<string, { label: string; sample: Measurement; here: number; total: number }>();
+    for (const m of t.measurements) if (m.kind === "count") {
+      const k = `${m.layerId}|${m.label}`, r = rows.get(k) ?? { label: m.label, sample: m, here: 0, total: 0 };
+      r.total += m.pts.length; if (m.page === page) r.here += m.pts.length; rows.set(k, r);
+    }
+    return [...rows.values()];
+  }, [t.measurements, page]);
+  const armCount = (m: Measurement) => { countLabel.current = m.label; arm({ id: newId("tp"), name: m.label, kind: "count", shape: shapeOf(m), color: colorOf(m), lineWidth: m.lineWidth ?? 2, label: m.label, layerName: layerOf(m.layerId)?.name, symbol: m.symbol }); say(`Counting "${m.label}". Click each one. Esc stops.`); };
+  const countsPanel = (
+    <>
+      <div style={{ display: "flex", gap: 6, flexWrap: "wrap", marginBottom: 8 }}>
+        <button className="btn" onClick={() => run("tool:count")}><Icon name="count" size={16} />Start a new count</button>
+        <label className="tb-text"><input type="checkbox" checked={showNums} onChange={(e) => setShowNums(e.target.checked)} /> number each mark</label>
+      </div>
+      {countRows.length === 0 ? <p className="muted">Nothing counted yet. Press <b>6</b> (or Shift+Alt+C), name what you're counting, then click each one. Or arm a symbol from the Tool Chest.</p> :
+        <table className="qty"><thead><tr><th>Item</th><th>Page {page}</th><th>All pages</th><th /></tr></thead>
+          <tbody>{countRows.map((r) => <tr key={r.sample.layerId + r.label}><td>{r.label}</td><td>{r.here}</td><td><b>{r.total}</b></td><td><button className="btn" title="Keep counting this item" onClick={() => armCount(r.sample)}>+ Count</button></td></tr>)}</tbody></table>}
+      <p className="muted">Each click adds one. Undo (Ctrl+Z) removes the last one. Select a mark and press Delete to remove it. Totals also appear in the Measurements panel and the CSV.</p>
+    </>
+  );
   const [filter, setFilter] = useState("");
   const markupsPanel = (
     <>
@@ -1132,7 +1183,7 @@ export function App() {
     </>
   );
   const leftTitle = leftTab === "pages" ? "Pages" : leftTab === "chest" ? "Tool Chest" : leftTab === "search" ? "Search" : leftTab === "bookmarks" ? "Bookmarks" : "Layers";
-  const rightTitle = rightTab === "props" ? "Properties" : rightTab === "qty" ? "Measurements" : rightTab === "markups" ? "Markups list" : "Keyboard shortcuts";
+  const rightTitle = rightTab === "props" ? "Properties" : rightTab === "qty" ? "Measurements" : rightTab === "markups" ? "Markups list" : rightTab === "counts" ? "Counts" : "Keyboard shortcuts";
 
   return (
     <div className="app">
@@ -1151,6 +1202,7 @@ export function App() {
         </div>
         <div className="tb-group">
           {tb("calibrate", "Calibrate the page scale (Shift+Alt+K)", () => run("tool:calibrate"), tool === "calibrate")}
+          {tb("count", "Count: click each item (6 or Shift+Alt+C)", () => run("tool:count"), tool === "count", false, "Count")}
           {tb("capture", "Capture symbol (Shift+S)", () => run("tool:capture"), tool === "capture")}
           {tb("array", "Array the selected markup", () => run("array"), false, !selected)}
           {tb("search", "Search every command (Ctrl+K)", () => run("palette"))}
@@ -1210,6 +1262,11 @@ export function App() {
         <div className="center">
           <div className="tabs"><div className="tab">{fileName || "No document open"}</div></div>
           <div className="viewer">
+            {tool === "count" && doc && (() => {
+              const lab = preset?.label ?? countLabel.current, cur = lab ? countRows.find((r) => r.label === lab) : null;
+              return <div style={{ position: "absolute", top: 8, left: "50%", transform: "translateX(-50%)", zIndex: 5, background: "#111827e6", color: "#fff", padding: "6px 12px", borderRadius: 6, fontSize: 13, pointerEvents: "none" }}>
+                {lab ? <>Counting <b>{lab}</b>: {cur?.here ?? 0} on this page · {cur?.total ?? 0} total</> : <>Click the first item. You'll be asked what you're counting.</>} · Esc to stop</div>;
+            })()}
             <div ref={scroller} onPointerDown={onPointerDown} onPointerMove={onPointerMove} onPointerUp={endPan} onPointerCancel={endPan}
               onAuxClick={(e) => e.preventDefault()} onMouseDown={(e) => { if (e.button === 1) e.preventDefault(); }}
               style={{ position: "absolute", inset: 0, overflow: "auto", background: "#c9d1dc", cursor: cursorStyle, touchAction: "none" }}>
@@ -1248,7 +1305,8 @@ export function App() {
                     const gs = { pointerEvents: hit, cursor: tool === "select" && !m.locked ? "move" : undefined } as React.CSSProperties;
                     if (m.kind === "count") {
                       const p = mp[0];
-                      return <g key={m.id} onPointerDown={down} onClick={stop} style={gs}>{m.symbol ? <SymbolMark symbol={m.symbol} cx={p.x} cy={p.y} color={c} selected={isSel} /> : <circle cx={p.x} cy={p.y} r={6} fill={c} stroke={isSel ? "#000" : "none"} strokeWidth={2} vectorEffect="non-scaling-stroke" />}</g>;
+                      return <g key={m.id} onPointerDown={down} onClick={stop} style={gs}>{m.symbol ? <SymbolMark symbol={m.symbol} cx={p.x} cy={p.y} color={c} selected={isSel} /> : <circle cx={p.x} cy={p.y} r={6} fill={c} stroke={isSel ? "#000" : "none"} strokeWidth={2} vectorEffect="non-scaling-stroke" />}
+                        {showNums && <text x={p.x + (m.symbol?.size ?? 12) / 2 + 1} y={p.y - (m.symbol?.size ?? 12) / 2} fontSize={textSize(zoom) * 0.85} fontWeight={700} fill={c} stroke="#fff" strokeWidth={2.5} paintOrder="stroke" fontFamily="Arial, sans-serif" pointerEvents="none">{countNo.get(m.id)}</text>}</g>;
                     }
                     const live = mp === m.pts ? m : { ...m, pts: mp };
                     const lab = showLabels && !m.hideLabel ? measureLabel(live, scaleFor(t, live)) : null, an = lab ? labelAnchor(sh, mp) : null;
@@ -1256,7 +1314,7 @@ export function App() {
                       <g key={m.id} onPointerDown={down} onClick={stop} style={gs}>
                         <ShapeView kind={m.kind} shape={sh} pts={mp} color={c} lw={m.lineWidth ?? 2} zoom={zoom} text={m.text} image={m.image} selected={isSel} />
                         {lab && an && <MeasureLabel text={lab} pt={an.pt} angle={an.angle} onLine={an.onLine} zoom={zoom} color={c} />}
-                        {isSel && selIds.length === 1 && !m.locked && !TEXTLIKE.includes(sh) && !MARKS.includes(sh) && mp.map((p, i) => <circle key={i} cx={p.x} cy={p.y} r={5 / zoom} fill="#fff" stroke="#000" vectorEffect="non-scaling-stroke" style={{ cursor: "crosshair" }} onPointerDown={(e) => startDrag(e, m, i)} />)}
+                        {isSel && selIds.length === 1 && !m.locked && !TEXTLIKE.includes(sh) && !MARKS.includes(sh) && sh !== "whiteout" && mp.map((p, i) => <circle key={i} cx={p.x} cy={p.y} r={5 / zoom} fill="#fff" stroke="#000" vectorEffect="non-scaling-stroke" style={{ cursor: "crosshair" }} onPointerDown={(e) => startDrag(e, m, i)} />)}
                       </g>);
                   })}
                   {tool === "calibrate" && draft.length > 0 && <polyline points={[...draft, ...(cursor ? [cursor] : [])].map((p) => `${p.x},${p.y}`).join(" ")} fill="none" stroke="#000" strokeDasharray="5 4" strokeWidth={1.5} vectorEffect="non-scaling-stroke" />}
@@ -1294,12 +1352,14 @@ export function App() {
               {rightTab === "props" && (selIds.length > 1 ? multiPanel : propsPanel)}
               {rightTab === "qty" && qtyPanel}
               {rightTab === "markups" && markupsPanel}
+              {rightTab === "counts" && countsPanel}
               {rightTab === "keys" && <table><tbody>{SHORTCUT_HELP.map(([k, d]) => <tr key={k}><td style={{ paddingRight: 10, whiteSpace: "nowrap", verticalAlign: "top" }}><b>{k}</b></td><td>{d}</td></tr>)}</tbody></table>}
             </div>
           </div>)}
         <div className="rail right">
           {rail("props", "Properties", rightTab === "props", () => toggle(rightTab, "props", setRightTab))}
           {rail("calc", "Measurements and scale", rightTab === "qty", () => toggle(rightTab, "qty", setRightTab))}
+          {rail("count", "Counts", rightTab === "counts", () => toggle(rightTab, "counts", setRightTab))}
           {rail("list", "Markups list", rightTab === "markups", () => toggle(rightTab, "markups", setRightTab))}
           {rail("keys", "Keyboard shortcuts", rightTab === "keys", () => toggle(rightTab, "keys", setRightTab))}
         </div>

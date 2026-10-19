@@ -40,3 +40,7 @@ Vercel builds on every push to `main` (Vite, output `dist`).
 - Ctrl+F searches the sheets' text; bookmarks live in the left rail; Ctrl+S saves the takeoff.
 - File > Export PDF with markups draws everything into the PDF pages (uses pdf-lib).
 - Not built: forms, digital signatures, OCR for scans. See `docs/BLUEBEAM-COMPLAINTS.md`.
+
+## Round 4b
+- **Cover and replace text** (markup tool): drag over printed text, it is covered in white and you type the replacement (prefilled with the old text). Cover and text are grouped. The original is hidden, not deleted; exported PDFs include the cover.
+- **Count**: labeled Count button, key 6 or Shift+Alt+C. Name the item once, then every click counts it (a banner shows the running total). Marks are numbered; Counts panel (right rail) lists totals per item with "+ Count" to keep going.

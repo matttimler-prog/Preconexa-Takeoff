@@ -83,6 +83,9 @@ function drawMarkup(ops: Op[], m: Measurement, color: string): void {
     case "highlight":
       if (pts.length >= 2) ops.push({ t: "poly", pts: o.pts, closed: true, fill: "#facc15", opacity: 0.45, width: 0 });
       return;
+    case "whiteout":
+      if (pts.length >= 2) ops.push({ t: "poly", pts: o.pts, closed: true, fill: "#ffffff", opacity: 1, width: 0 });
+      return;
     case "hltext":
       if (pts.length >= 2) ops.push({ t: "poly", pts: o.pts, closed: true, fill: "#facc15", opacity: 0.4, width: 0 });
       return;

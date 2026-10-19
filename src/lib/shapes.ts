@@ -6,13 +6,13 @@ import { centroid } from "./geom";
 export type Shape =
   | "polyline" | "polygon" | "rect" | "ellipse" | "arc" | "line" | "arrow" | "cloud" | "text" | "callout"
   | "pen" | "highlight" | "dimension" | "point" | "note" | "angle" | "circle" | "diameter"
-  | "stamp" | "typewriter" | "link" | "image" | "viewport" | "underline" | "strike" | "squiggly" | "hltext";
+  | "stamp" | "typewriter" | "link" | "image" | "viewport" | "underline" | "strike" | "squiggly" | "hltext" | "whiteout";
 
 /** Shapes defined by two opposite corners and drawn/hit-tested as a rectangle. */
-export const RECTLIKE: Shape[] = ["rect", "highlight", "link", "image", "viewport", "underline", "strike", "squiggly", "hltext"];
+export const RECTLIKE: Shape[] = ["rect", "highlight", "link", "image", "viewport", "underline", "strike", "squiggly", "hltext", "whiteout"];
 /** Shapes anchored at one point (their size comes from the text). */
 export const TEXTLIKE: Shape[] = ["text", "note", "stamp", "typewriter"];
-export const CLOSED: Shape[] = ["polygon", "rect", "ellipse", "cloud", "highlight", "circle", "diameter", "link", "image", "viewport", "underline", "strike", "squiggly", "hltext"];
+export const CLOSED: Shape[] = ["polygon", "rect", "ellipse", "cloud", "highlight", "circle", "diameter", "link", "image", "viewport", "underline", "strike", "squiggly", "hltext", "whiteout"];
 export const isClosed = (s: Shape) => CLOSED.includes(s);
 
 export function circleFrom3(a: Pt, b: Pt, c: Pt): { c: Pt; r: number } | null {
@@ -59,7 +59,7 @@ export function circleOf(shape: Shape, pts: Pt[]): { c: Pt; r: number } | null {
 /** The drawn path of a shape as points, and whether it closes. Used for hit tests, snapping and quantities. */
 export function outline(shape: Shape, pts: Pt[]): { pts: Pt[]; closed: boolean } {
   switch (shape) {
-    case "rect": case "highlight": case "link": case "image": case "viewport": case "underline": case "strike": case "squiggly": case "hltext": return pts.length >= 2 ? { pts: rectPoints(pts[0], pts[1]), closed: true } : { pts, closed: false };
+    case "rect": case "highlight": case "link": case "image": case "viewport": case "underline": case "strike": case "squiggly": case "hltext": case "whiteout": return pts.length >= 2 ? { pts: rectPoints(pts[0], pts[1]), closed: true } : { pts, closed: false };
     case "ellipse": return pts.length >= 2 ? { pts: ellipsePoints(pts[0], pts[1]), closed: true } : { pts, closed: false };
     case "arc": return pts.length >= 3 ? { pts: arcPoints(pts[0], pts[1], pts[2]), closed: false } : { pts, closed: false };
     case "circle": case "diameter": { const k = circleOf(shape, pts); return k ? { pts: circlePoints(k.c, k.r), closed: true } : { pts, closed: false }; }
