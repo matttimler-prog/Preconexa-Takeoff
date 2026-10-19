@@ -141,3 +141,6 @@ export function textBox(text: string, at: Pt, fs: number): { x: number; y: numbe
   const w = Math.max(...lines.map((l) => l.length), 1) * fs * 0.58 + fs * 0.8;
   return { x: at.x, y: at.y, w, h: lines.length * fs * 1.25 + fs * 0.5 };
 }
+
+/** Box for a text-bearing shape. Stamps are set larger than plain text. */
+export const textBoxOf = (shape: Shape, text: string, at: Pt, fs: number) => textBox(shape === "stamp" ? text.toUpperCase() : text, at, fs * (shape === "stamp" ? 1.4 : 1));

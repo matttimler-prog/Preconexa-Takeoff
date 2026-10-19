@@ -33,3 +33,10 @@ Vercel builds on every push to `main` (Vite, output `dist`).
 - Array: select a markup, Edit > Array. Command search: Ctrl+K.
 - Shortcuts now follow the common markup-app keys. Plain letters draw markups; Shift+Alt+letter measures; 1-9 are one-key measure shortcuts. Calibrate moved to Shift+Alt+K; lock moved to Ctrl+L.
 - See `docs/BLUEBEAM-COMPLAINTS.md`.
+
+## Round 4 additions
+- Select: Shift/Ctrl-click or drag a box to select several; they move, lock, delete, copy and array together. Ctrl+G groups, Ctrl+Shift+G ungroups. Ctrl+C/X/V copy, cut and paste (also onto another page); right-click empty space for Paste here. Ctrl+A selects the page.
+- New tools: Dynamic Fill (J), Eraser (Shift+E), Stamp (Shift+M), Typewriter (Shift+T), Hyperlink (Shift+H), Image (I), Viewport scale (Shift+Alt+W), sketch rectangle/ellipse to scale, underline / strikethrough / squiggly / highlight text (drag over printed text).
+- Ctrl+F searches the sheets' text; bookmarks live in the left rail; Ctrl+S saves the takeoff.
+- File > Export PDF with markups draws everything into the PDF pages (uses pdf-lib).
+- Not built: forms, digital signatures, OCR for scans. See `docs/BLUEBEAM-COMPLAINTS.md`.

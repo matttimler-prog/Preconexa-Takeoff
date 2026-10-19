@@ -18,5 +18,7 @@ Sources: Capterra reviews (about 25 recent reviews read, 978 total), the Bluebea
 | Studio sessions: data retention, session limits | No sessions product yet. | Not applicable yet |
 | No link to estimating or accounting | Planned: connect to Preconexa over an API. | Planned |
 
-## Bluebeam tools we did not build (yet)
-Dynamic Fill (auto-detect rooms), sketch-to-scale with typed dimensions, viewport scales on one sheet, stamps, hyperlinks, image markups, forms and digital signatures, text-layer markups (underline, strikethrough, typewriter), eraser, grouping, multi-select, copy/paste between pages, and flattening markups into an exported PDF.
+## Bluebeam tools: what is built now, and what is not
+Built in round 4: Dynamic Fill (click a closed room), sketch-to-scale (type 10' x 12'), viewport scales on one sheet, stamps (with date), hyperlinks (page or web address, plus links from printed URLs), image markups, text-layer markups (underline, strikethrough, squiggly, highlight text), typewriter, eraser, grouping, multi-select (Shift-click, drag a box), copy/cut/paste between pages, find-in-text search, bookmarks, and PDF export with markups drawn into the pages.
+
+Not built: forms (fill and create), digital signatures and certification, OCR for scanned sheets. Dynamic Fill ignores columns inside a room and needs the room's walls to be closed (it tells you when it leaks). Exported PDFs skip markups on rotated pages (it warns).

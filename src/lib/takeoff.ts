@@ -24,7 +24,7 @@ export type Measurement = {
   /** For viewport markups: the scale (feet per page unit) that applies inside the box. */
   vpScale?: number;
 };
-export type Takeoff = { layers: Layer[]; measurements: Measurement[]; feetPerUnit: Record<number, number>; scaleNote?: Record<number, string> };
+export type Takeoff = { layers: Layer[]; measurements: Measurement[]; feetPerUnit: Record<number, number>; scaleNote?: Record<number, string>; bookmarks?: { id: string; name: string; page: number }[] };
 
 /**
  * Quantity in the kind's unit (LF, SF, CF, EA, degrees). Null if the page is not calibrated.

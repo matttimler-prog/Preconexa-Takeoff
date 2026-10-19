@@ -54,6 +54,15 @@ describe("hotkeys", () => {
     expect(commandForKey(key("l", { ctrlKey: true }))).toBe("lock:toggle");
     expect(commandForKey(key("d", { ctrlKey: true }))).toBe("duplicate");
     expect(commandForKey(key("k", { ctrlKey: true }))).toBe("palette");
+    expect(commandForKey(key("c", { ctrlKey: true }))).toBe("copy");
+    expect(commandForKey(key("v", { ctrlKey: true }))).toBe("paste");
+    expect(commandForKey(key("x", { ctrlKey: true }))).toBe("cut");
+    expect(commandForKey(key("a", { ctrlKey: true }))).toBe("select:all");
+    expect(commandForKey(key("g", { ctrlKey: true }))).toBe("group");
+    expect(commandForKey(key("G", { ctrlKey: true, shiftKey: true }))).toBe("ungroup");
+    expect(commandForKey(key("f", { ctrlKey: true }))).toBe("search");
+    expect(commandForKey(key("s", { ctrlKey: true }))).toBe("save");
+    expect(commandForKey(key("E", { shiftKey: true }))).toBe("tool:eraser");
     expect(commandForKey(key("F9"))).toBeNull();
   });
   it("plain letters draw markups", () => {

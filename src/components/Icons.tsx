@@ -2,7 +2,7 @@ export type IconName =
   | "open" | "save" | "undo" | "redo" | "select" | "pan" | "length" | "polylength" | "area" | "count" | "calibrate" | "capture"
   | "zoomIn" | "zoomOut" | "fit" | "prev" | "next" | "wheel" | "pages" | "toolchest" | "layers" | "props" | "calc" | "list"
   | "keys" | "trash" | "download" | "upload" | "chevron" | "plus" | "eye" | "close" | "snap" | "lock"
-  | "line" | "arrow" | "arc" | "polyline" | "dimension" | "callout" | "rect" | "ellipse" | "polygon" | "cloud" | "cloudplus" | "text" | "note" | "pen" | "highlight" | "perimeter" | "rectarea" | "ellipsearea" | "volume" | "cutout" | "cutoutrect" | "cutoutellipse" | "diameter" | "radius" | "radius3" | "angle" | "array" | "search";
+  | "line" | "arrow" | "arc" | "polyline" | "dimension" | "callout" | "rect" | "ellipse" | "polygon" | "cloud" | "cloudplus" | "text" | "note" | "pen" | "highlight" | "perimeter" | "rectarea" | "ellipsearea" | "volume" | "cutout" | "cutoutrect" | "cutoutellipse" | "diameter" | "radius" | "radius3" | "angle" | "array" | "search" | "stamp" | "typewriter" | "link" | "image" | "underline" | "strike" | "squiggly" | "hltext" | "sketchrect" | "sketchellipse" | "viewport" | "dynfill" | "eraser" | "bookmark" | "searchdoc" | "group" | "export";
 
 /** Preconexa's own line-icon set (24px grid, 1.8 stroke). */
 export function Icon({ name, size = 20 }: { name: IconName; size?: number }) {
@@ -70,6 +70,23 @@ export function Icon({ name, size = 20 }: { name: IconName; size?: number }) {
     case "angle": body = <>{p("M4 19h16")}{p("M4 19L15 5")}{p("M11 19a7 7 0 0 0-2-5")}</>; break;
     case "array": body = <><rect x="4" y="4" width="6" height="6" /><rect x="14" y="4" width="6" height="6" /><rect x="4" y="14" width="6" height="6" /><rect x="14" y="14" width="6" height="6" /></>; break;
     case "search": body = <><circle cx="11" cy="11" r="6" />{p("M20 20l-4.5-4.5")}</>; break;
+    case "stamp": body = <>{p("M4 12h16v6H4z")}{p("M8 12V9a4 4 0 0 1 8 0v3")}{p("M7 21h10")}</>; break;
+    case "typewriter": body = <>{p("M5 6h14")}{p("M12 6v12")}{p("M9 18h6")}{p("M18 14v6")}</>; break;
+    case "link": body = <>{p("M10 14a4 4 0 0 0 5.7 0l3-3a4 4 0 0 0-5.7-5.7l-1 1")}{p("M14 10a4 4 0 0 0-5.7 0l-3 3a4 4 0 0 0 5.7 5.7l1-1")}</>; break;
+    case "image": body = <><rect x="4" y="5" width="16" height="14" />{p("M4 16l5-5 4 4 3-3 4 4")}<circle cx="9" cy="9" r="1.4" /></>; break;
+    case "underline": body = <>{p("M7 5v7a5 5 0 0 0 10 0V5")}{p("M5 20h14")}</>; break;
+    case "strike": body = <>{p("M5 12h14")}{p("M16 7c0-2-2-3-4-3s-4 1-4 3 2 3 4 4")}{p("M8 17c0 2 2 3 4 3s4-1 4-3")}</>; break;
+    case "squiggly": body = <>{p("M8 13l4-9 4 9")}{p("M3 19l2-2 2 2 2-2 2 2 2-2 2 2 2-2 2 2")}</>; break;
+    case "hltext": body = <><rect x="4" y="7" width="16" height="9" fill="currentColor" fillOpacity="0.2" />{p("M9 14l3-6 3 6")}</>; break;
+    case "sketchrect": body = <><rect x="4" y="5" width="16" height="10" />{p("M4 19h16")}{p("M4 17v4")}{p("M20 17v4")}</>; break;
+    case "sketchellipse": body = <><ellipse cx="12" cy="10" rx="8" ry="5" />{p("M4 19h16")}{p("M4 17v4")}{p("M20 17v4")}</>; break;
+    case "viewport": body = <><rect x="3" y="5" width="18" height="14" strokeDasharray="3 2" /><rect x="8" y="9" width="8" height="6" /></>; break;
+    case "dynfill": body = <>{p("M6 11l6-6 6 6-6 6z")}{p("M19 15c1.2 1.6 1.2 3 0 3s-1.2-1.4 0-3z")}{p("M4 21h16")}</>; break;
+    case "eraser": body = <>{p("M4 16l8-8 6 6-5 5H8z")}{p("M10 21h10")}</>; break;
+    case "bookmark": body = p("M7 4h10v17l-5-4-5 4z"); break;
+    case "searchdoc": body = <>{p("M6 3h8l4 4v14H6z")}<circle cx="11" cy="13" r="3" />{p("M13.2 15.2l2.3 2.3")}</>; break;
+    case "group": body = <><rect x="4" y="4" width="7" height="7" /><rect x="13" y="13" width="7" height="7" />{p("M7.5 11v5h5.5")}</>; break;
+    case "export": body = <>{p("M12 3v12")}{p("M8 7l4-4 4 4")}{p("M5 21h14")}{p("M5 17v4")}{p("M19 17v4")}</>; break;
     default: body = <>{p("M6 6l12 12")}{p("M18 6L6 18")}</>;
   }
   return <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">{body}</svg>;

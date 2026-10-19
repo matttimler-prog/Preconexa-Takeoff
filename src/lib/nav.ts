@@ -45,7 +45,8 @@ export type Command =
   | `tool:${string}`
   | "page:next" | "page:prev" | "page:first" | "page:last"
   | "zoom:in" | "zoom:out" | "zoom:fit" | "wheel:toggle"
-  | "undo" | "redo" | "delete" | "finish" | "cancel" | "backspace-point" | "snap:toggle" | "duplicate" | "lock:toggle" | "array" | "palette";
+  | "undo" | "redo" | "delete" | "finish" | "cancel" | "backspace-point" | "snap:toggle" | "duplicate" | "lock:toggle" | "array" | "palette"
+  | "copy" | "cut" | "paste" | "select:all" | "group" | "ungroup" | "search" | "save" | "export:pdf";
 
 export type KeyEvt = { key: string; code?: string; shiftKey: boolean; altKey: boolean; ctrlKey: boolean; metaKey: boolean };
 
@@ -66,6 +67,13 @@ export function commandForKey(e: KeyEvt): Command | null {
     if (k === "d") return "duplicate";
     if (k === "l") return "lock:toggle";
     if (k === "k") return "palette";
+    if (k === "c") return "copy";
+    if (k === "x") return "cut";
+    if (k === "v") return "paste";
+    if (k === "a") return "select:all";
+    if (k === "g") return e.shiftKey ? "ungroup" : "group";
+    if (k === "f") return "search";
+    if (k === "s") return "save";
     return null;
   }
   if (e.altKey && !e.shiftKey) return null;
@@ -75,6 +83,7 @@ export function commandForKey(e: KeyEvt): Command | null {
   if (e.shiftKey || e.altKey) {
     if (!e.altKey && k === "v") return "tool:pan";
     if (!e.altKey && k === "s") return "tool:capture";
+    if (!e.altKey && k === "e") return "tool:eraser";
     return null;
   }
   const al = TOOLS.find((t) => t.alias === k);
@@ -101,7 +110,7 @@ export const SHORTCUT_HELP: [string, string][] = [
   ["Wheel", "Zoom at cursor (or change page in page mode)"], ["W", "Toggle wheel: zoom / page"], ["Ctrl+Wheel", "Always zoom"],
   ["Alt/Shift+Wheel", "Scroll"], ["Space+drag / middle drag", "Pan"], ["V", "Select"], ["Shift+V", "Pan tool"], ["Ctrl+K", "Search every command"],
   ...TOOLS.map((t): [string, string] => [`${keyLabel(t.key)}${t.alias ? ` or ${t.alias}` : ""}`.replace(/^ or /, ""), t.label]).filter(([k]) => k !== ""),
-  ["Shift+Alt+K", "Calibrate scale"], ["S", "Snap on / off"], ["Shift+S", "Capture symbol from print"], ["Ctrl+L", "Lock / unlock selected"], ["Ctrl+D", "Duplicate selected"], ["Right-click", "Markup options"], ["Shift", "Hold to constrain 0/45/90°"],
+  ["Shift+Alt+K", "Calibrate scale"], ["S", "Snap on / off"], ["Shift+S", "Capture symbol from print"], ["Ctrl+L", "Lock / unlock selected"], ["Shift+E", "Eraser"], ["Ctrl+C / X / V", "Copy / cut / paste markups"], ["Ctrl+A", "Select all on this page"], ["Ctrl+G / Ctrl+Shift+G", "Group / ungroup"], ["Ctrl+F", "Search the drawing text"], ["Ctrl+S", "Save takeoff"], ["Shift+click, drag a box", "Select several markups"], ["Ctrl+D", "Duplicate selected"], ["Right-click", "Markup options"], ["Shift", "Hold to constrain 0/45/90°"],
   ["Enter / double-click", "Finish"], ["Backspace", "Remove last point"], ["Esc", "Cancel"], ["Delete", "Delete selected"],
   ["Ctrl+Z / Ctrl+Y", "Undo / Redo"], ["Ctrl+←/→, PgUp/PgDn", "Previous / next page"], ["Home / End", "First / last page"],
   ["+ / -", "Zoom"], ["Ctrl+0", "Fit width"],

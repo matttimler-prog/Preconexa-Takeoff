@@ -1,10 +1,10 @@
 import type { Pt } from "../lib/measure";
 import { dist } from "../lib/measure";
 import type { Shape } from "../lib/shapes";
-import { angleArc, arrowHead, circleOf, cloudPath, outline, textBox } from "../lib/shapes";
+import { angleArc, arrowHead, circleOf, cloudPath, outline, textBox, textBoxOf } from "../lib/shapes";
 import type { Kind } from "../lib/takeoff";
 
-type Props = { kind: Kind; shape: Shape; pts: Pt[]; color: string; lw: number; zoom: number; text?: string; preview?: boolean; selected?: boolean };
+type Props = { kind: Kind; shape: Shape; pts: Pt[]; color: string; lw: number; zoom: number; text?: string; image?: string; preview?: boolean; selected?: boolean };
 
 /** Text size in page units: 11 on the sheet, but never smaller than 9 screen pixels when zoomed out. */
 export const textSize = (zoom: number) => Math.max(11, 9 / zoom);
@@ -12,7 +12,7 @@ const list = (a: Pt[]) => a.map((q) => `${q.x},${q.y}`).join(" ");
 const VE = "non-scaling-stroke" as const;
 
 /** Draws one markup's geometry. Used for finished markups and for the live preview while drawing. */
-export function ShapeView({ kind, shape, pts, color, lw, zoom, text, preview, selected }: Props) {
+export function ShapeView({ kind, shape, pts, color, lw, zoom, text, image, preview, selected }: Props) {
   if (!pts.length) return null;
   const stroke = selected ? "#000" : color, sw = selected ? Math.max(3, lw + 1) : lw;
   const line = { stroke, strokeWidth: sw, fill: "none", vectorEffect: VE, strokeLinejoin: "round" as const, strokeLinecap: "round" as const, strokeDasharray: preview ? "5 4" : undefined };
@@ -27,6 +27,43 @@ export function ShapeView({ kind, shape, pts, color, lw, zoom, text, preview, se
       const b = textBox(text ?? "", pts[0], fs), rows = (text || " ").split("\n");
       return <g><rect x={b.x} y={b.y} width={b.w} height={b.h} fill="#fff" fillOpacity={0.88} stroke={stroke} strokeWidth={1} vectorEffect={VE} strokeDasharray={preview ? "4 3" : undefined} />
         {rows.map((r, i) => <text key={i} x={b.x + fs * 0.4} y={b.y + fs * (1.15 + 1.25 * i)} fontSize={fs} fill={color} fontFamily="Arial, sans-serif">{r}</text>)}</g>;
+    }
+    case "typewriter": {
+      const rows = (text || " ").split("\n"), b = textBox(text ?? "", pts[0], fs);
+      return <g>{preview ? <rect x={b.x} y={b.y} width={b.w} height={b.h} fill="none" stroke={stroke} strokeDasharray="3 3" strokeWidth={1} vectorEffect={VE} /> : <rect x={b.x} y={b.y} width={b.w} height={b.h} fill="transparent" stroke={selected ? "#000" : "none"} strokeWidth={1} vectorEffect={VE} />}
+        {rows.map((r, i) => <text key={i} x={b.x + fs * 0.4} y={b.y + fs * (1.15 + 1.25 * i)} fontSize={fs} fill={color} fontFamily="Courier New, monospace">{r}</text>)}</g>;
+    }
+    case "stamp": {
+      const rows = (text || " ").toUpperCase().split("\n"), b = textBoxOf("stamp", text ?? "", pts[0], fs), f = fs * 1.4;
+      return <g><rect x={b.x} y={b.y} width={b.w} height={b.h} fill={color} fillOpacity={0.08} stroke={selected ? "#000" : color} strokeWidth={selected ? 3 : 2.5} rx={f * 0.2} vectorEffect={VE} />
+        {rows.map((r, i) => <text key={i} x={b.x + b.w / 2} y={b.y + f * (1.2 + 1.25 * i)} textAnchor="middle" fontSize={f} fontWeight={800} fill={color} fontFamily="Arial, sans-serif">{r}</text>)}</g>;
+    }
+    case "link": {
+      if (pts.length < 2) return <polyline points={list(pts)} {...line} />;
+      const [a, b] = pts, r = { x: Math.min(a.x, b.x), y: Math.min(a.y, b.y), w: Math.abs(b.x - a.x), h: Math.abs(b.y - a.y) };
+      return <g><rect x={r.x} y={r.y} width={r.w} height={r.h} fill="#2563eb" fillOpacity={0.1} stroke={selected ? "#000" : "#2563eb"} strokeWidth={1.5} strokeDasharray="4 3" vectorEffect={VE} />{text ? <title>{text}</title> : null}</g>;
+    }
+    case "viewport": {
+      if (pts.length < 2) return <polyline points={list(pts)} {...line} />;
+      const [a, b] = pts, r = { x: Math.min(a.x, b.x), y: Math.min(a.y, b.y), w: Math.abs(b.x - a.x), h: Math.abs(b.y - a.y) };
+      return <g><rect x={r.x} y={r.y} width={r.w} height={r.h} fill="#7c3aed" fillOpacity={0.05} stroke={selected ? "#000" : "#7c3aed"} strokeWidth={1.5} strokeDasharray="8 4" vectorEffect={VE} />
+        {text && <text x={r.x + fs * 0.3} y={r.y + fs * 1.1} fontSize={fs} fontWeight={700} fill="#7c3aed" fontFamily="Arial, sans-serif">Scale {text}</text>}</g>;
+    }
+    case "image": {
+      if (pts.length < 2) return <polyline points={list(pts)} {...line} />;
+      const [a, b] = pts, r = { x: Math.min(a.x, b.x), y: Math.min(a.y, b.y), w: Math.abs(b.x - a.x), h: Math.abs(b.y - a.y) };
+      return <g>{image ? <image href={image} x={r.x} y={r.y} width={r.w} height={r.h} preserveAspectRatio="none" /> : null}
+        <rect x={r.x} y={r.y} width={r.w} height={r.h} fill="transparent" stroke={selected ? "#000" : "#64748b"} strokeWidth={selected ? 2 : 1} strokeDasharray={image ? undefined : "4 3"} vectorEffect={VE} /></g>;
+    }
+    case "underline": case "strike": case "squiggly": case "hltext": {
+      if (pts.length < 2) return <polyline points={list(pts)} {...line} />;
+      const [a, b] = pts, x0 = Math.min(a.x, b.x), x1 = Math.max(a.x, b.x), y0 = Math.min(a.y, b.y), y1 = Math.max(a.y, b.y), w = 1.4;
+      if (shape === "hltext") return <g><rect x={x0} y={y0} width={x1 - x0} height={y1 - y0} fill={selected ? "#fde047" : color === "#2563eb" ? "#facc15" : color} fillOpacity={0.4} stroke={selected ? "#000" : "none"} vectorEffect={VE} /></g>;
+      const ys = shape === "strike" ? (y0 + y1) / 2 : y1;
+      let d = `M${x0},${ys}L${x1},${ys}`;
+      if (shape === "squiggly") { const step = Math.max(2.5, (y1 - y0) * 0.22); d = `M${x0},${ys}`; for (let x = x0, up = true; x < x1; x += step, up = !up) d += `L${Math.min(x + step, x1)},${ys + (up ? -step * 0.7 : 0)}`; }
+      return <g><rect x={x0} y={y0} width={x1 - x0} height={y1 - y0} fill="transparent" stroke={selected ? "#000" : "none"} strokeWidth={1} vectorEffect={VE} />
+        <path d={d} fill="none" stroke={color} strokeWidth={Math.max(w, lw)} vectorEffect={VE} strokeLinejoin="round" /></g>;
     }
     case "callout": {
       if (pts.length < 2) return <circle cx={pts[0].x} cy={pts[0].y} r={3 / zoom} fill={color} />;
