@@ -44,3 +44,12 @@ describe("summaries and scale", () => {
     const r = ensureLayer(base, "Lighting", "#fff"); expect(r.takeoff.layers.length).toBe(2);
   });
 });
+
+describe("scale notes", () => {
+  it("records and clears the note per page", () => {
+    const base: Takeoff = { layers: [], measurements: [], feetPerUnit: {} };
+    const a = setScale(base, [1, 2], 0.1, "auto-detected");
+    expect(a.scaleNote).toEqual({ 1: "auto-detected", 2: "auto-detected" });
+    expect(setScale(a, [1], 0.2).scaleNote).toEqual({ 2: "auto-detected" });
+  });
+});

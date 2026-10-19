@@ -52,6 +52,10 @@ describe("hotkeys", () => {
     expect(commandForKey(key("z", { ctrlKey: true }))).toBe("undo");
     expect(commandForKey(key("z", { ctrlKey: true, shiftKey: true }))).toBe("redo");
     expect(commandForKey(key("y", { ctrlKey: true }))).toBe("redo");
+    expect(commandForKey(key("s"))).toBe("snap:toggle");
+    expect(commandForKey(key("S", { shiftKey: true }))).toBe("tool:capture");
+    expect(commandForKey(key("L", { shiftKey: true }))).toBe("lock:toggle");
+    expect(commandForKey(key("d", { ctrlKey: true }))).toBe("duplicate");
     expect(commandForKey(key("q"))).toBeNull();
   });
 });

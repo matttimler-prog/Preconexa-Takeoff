@@ -44,7 +44,7 @@ export type Command =
   | "tool:select" | "tool:pan" | "tool:length" | "tool:polylength" | "tool:area" | "tool:count" | "tool:calibrate" | "tool:capture"
   | "page:next" | "page:prev" | "page:first" | "page:last"
   | "zoom:in" | "zoom:out" | "zoom:fit" | "wheel:toggle"
-  | "undo" | "redo" | "delete" | "finish" | "cancel" | "backspace-point";
+  | "undo" | "redo" | "delete" | "finish" | "cancel" | "backspace-point" | "snap:toggle" | "duplicate" | "lock:toggle";
 
 export type KeyEvt = { key: string; shiftKey: boolean; altKey: boolean; ctrlKey: boolean; metaKey: boolean };
 
@@ -58,6 +58,7 @@ export function commandForKey(e: KeyEvt): Command | null {
     if (k === "ArrowRight") return "page:next";
     if (k === "ArrowLeft") return "page:prev";
     if (k === "0") return "zoom:fit";
+    if (k === "d") return "duplicate";
     return null;
   }
   if (e.shiftKey && e.altKey) { if (k === "a") return "tool:area"; if (k === "c") return "tool:count"; return null; }
@@ -65,6 +66,7 @@ export function commandForKey(e: KeyEvt): Command | null {
     if (k === "n") return "tool:polylength";
     if (k === "v") return "tool:pan";
     if (k === "s") return "tool:capture";
+    if (k === "l") return "lock:toggle";
     return null;
   }
   if (e.altKey) return null;
@@ -75,6 +77,7 @@ export function commandForKey(e: KeyEvt): Command | null {
     case "c": return "tool:count";
     case "k": return "tool:calibrate";
     case "w": return "wheel:toggle";
+    case "s": return "snap:toggle";
     case "+": case "=": return "zoom:in";
     case "-": case "_": return "zoom:out";
     case "PageDown": return "page:next";
@@ -93,7 +96,7 @@ export const SHORTCUT_HELP: [string, string][] = [
   ["Wheel", "Zoom at cursor (or change page in page mode)"], ["W", "Toggle wheel: zoom / page"], ["Ctrl+Wheel", "Always zoom"],
   ["Alt/Shift+Wheel", "Scroll"], ["Space+drag / middle drag", "Pan"], ["V", "Select"], ["Shift+V", "Pan tool"],
   ["L", "Length (2 points)"], ["Shift+N", "Polylength"], ["A / Shift+Alt+A", "Area"], ["C / Shift+Alt+C", "Count"],
-  ["K", "Calibrate"], ["Shift+S", "Capture symbol from print"], ["Shift", "Hold to constrain 0/45/90°"],
+  ["K", "Calibrate"], ["S", "Snap on / off"], ["Shift+S", "Capture symbol from print"], ["Shift+L", "Lock / unlock selected"], ["Ctrl+D", "Duplicate selected"], ["Right-click", "Markup options"], ["Shift", "Hold to constrain 0/45/90°"],
   ["Enter / double-click", "Finish"], ["Backspace", "Remove last point"], ["Esc", "Cancel"], ["Delete", "Delete selected"],
   ["Ctrl+Z / Ctrl+Y", "Undo / Redo"], ["Ctrl+←/→, PgUp/PgDn", "Previous / next page"], ["Home / End", "First / last page"],
   ["+ / -", "Zoom"], ["Ctrl+0", "Fit width"],

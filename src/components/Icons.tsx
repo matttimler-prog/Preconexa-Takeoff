@@ -1,7 +1,7 @@
 export type IconName =
   | "open" | "save" | "undo" | "redo" | "select" | "pan" | "length" | "polylength" | "area" | "count" | "calibrate" | "capture"
   | "zoomIn" | "zoomOut" | "fit" | "prev" | "next" | "wheel" | "pages" | "toolchest" | "layers" | "props" | "calc" | "list"
-  | "keys" | "trash" | "download" | "upload" | "chevron" | "plus" | "eye" | "close";
+  | "keys" | "trash" | "download" | "upload" | "chevron" | "plus" | "eye" | "close" | "snap" | "lock";
 
 /** Preconexa's own line-icon set (24px grid, 1.8 stroke). */
 export function Icon({ name, size = 20 }: { name: IconName; size?: number }) {
@@ -39,6 +39,8 @@ export function Icon({ name, size = 20 }: { name: IconName; size?: number }) {
     case "chevron": body = p("M6 9l6 6 6-6"); break;
     case "plus": body = <>{p("M12 5v14")}{p("M5 12h14")}</>; break;
     case "eye": body = <>{p("M2 12s4-7 10-7 10 7 10 7-4 7-10 7S2 12 2 12z")}<circle cx="12" cy="12" r="3" /></>; break;
+    case "snap": body = <>{p("M6 3v8a6 6 0 0 0 12 0V3")}{p("M6 7h4")}{p("M14 7h4")}</>; break;
+    case "lock": body = <><rect x="5" y="11" width="14" height="9" rx="2" />{p("M8 11V8a4 4 0 0 1 8 0v3")}</>; break;
     default: body = <>{p("M6 6l12 12")}{p("M18 6L6 18")}</>;
   }
   return <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">{body}</svg>;

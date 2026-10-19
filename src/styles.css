@@ -56,3 +56,10 @@ button { cursor: pointer; }
 h4.sec { margin: 12px 0 4px; font-size: 12px; text-transform: uppercase; letter-spacing: .04em; color: var(--muted); }
 table.qty { width: 100%; border-collapse: collapse; } table.qty td, table.qty th { padding: 3px 4px; text-align: left; border-top: 1px solid #e5eaf1; }
 .setrow { border-top: 1px solid var(--line); margin-top: 6px; padding-top: 4px; }
+
+.ctx { position: fixed; z-index: 60; min-width: 230px; max-height: 80vh; overflow: auto; background: #fff; color: var(--ink); border: 1px solid var(--line); box-shadow: 0 8px 24px #0004; padding: 4px 0; font-size: 13px; }
+.ctx-head { padding: 5px 10px 2px 28px; font-size: 11px; text-transform: uppercase; letter-spacing: .04em; color: var(--muted); }
+.menu-item.sub .menu-label { padding-left: 10px; }
+.snaprow { display: flex; gap: 6px; margin: 6px 0; } .snaprow input { flex: 1; height: 26px; border: 1px solid var(--line); border-radius: 4px; padding: 0 6px; }
+.cand { display: flex; align-items: center; gap: 6px; padding: 3px 0; }
+.note { background: #fff7e0; border: 1px solid #f1d98a; border-radius: 4px; padding: 5px 7px; margin: 6px 0; font-size: 12px; }

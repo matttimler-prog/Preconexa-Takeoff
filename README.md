@@ -20,3 +20,9 @@ Tool Chest: click a tool to arm it, then click on the print. Capture a symbol st
 
 ## Deploy
 Vercel builds on every push to `main` (Vite, output `dist`).
+
+## Round 2 additions
+- **Right-click** a markup: Properties, Lock/Unlock, Move to layer, Duplicate, Bring to front / Send to back, Add to Tool Chest, Add/Delete point, Delete. While drawing: Finish, Remove last point, Cancel.
+- **Edit points:** select a markup, drag its white handles to reshape, or drag the markup to move it. Locked markups can't be changed.
+- **Snap (S):** on by default. Snaps to ends, centers, midpoints and edges of the PDF's vector lines and of existing markups. Toggle in the toolbar, View menu or with S. Scanned sheets have no vector lines, so only markups snap there.
+- **Scale:** type it (`1/8" = 1'-0"`, `1:48`), pick from the list, or let the app read it from the sheet's text (auto on open, "Detect from page text", "Scan all pages"). Reduced prints and "not to scale" sheets are never auto-set.

@@ -6,9 +6,9 @@ export type Kind = "length" | "area" | "count";
 export type Layer = { id: string; name: string; color: string; visible: boolean };
 export type Measurement = {
   id: string; layerId: string; kind: Kind; page: number; label: string; pts: Pt[];
-  color?: string; lineWidth?: number; symbol?: SymbolDef;
+  color?: string; lineWidth?: number; symbol?: SymbolDef; locked?: boolean;
 };
-export type Takeoff = { layers: Layer[]; measurements: Measurement[]; feetPerUnit: Record<number, number> };
+export type Takeoff = { layers: Layer[]; measurements: Measurement[]; feetPerUnit: Record<number, number>; scaleNote?: Record<number, string> };
 
 /** Quantity in feet, sq ft, or each. Returns null if the page is not calibrated (count never needs it). */
 export function quantity(m: Measurement, feetPerUnit: number | undefined): number | null {
@@ -65,10 +65,10 @@ export function ensureLayer(t: Takeoff, name: string, color: string): { takeoff:
 }
 
 /** Apply one calibration to a set of pages (e.g. all pages of a same-scale set). */
-export function setScale(t: Takeoff, pages: number[], feetPerUnit: number): Takeoff {
-  const next = { ...t.feetPerUnit };
-  for (const p of pages) next[p] = feetPerUnit;
-  return { ...t, feetPerUnit: next };
+export function setScale(t: Takeoff, pages: number[], feetPerUnit: number, note?: string): Takeoff {
+  const next = { ...t.feetPerUnit }, notes = { ...(t.scaleNote ?? {}) };
+  for (const p of pages) { next[p] = feetPerUnit; if (note) notes[p] = note; else delete notes[p]; }
+  return { ...t, feetPerUnit: next, scaleNote: notes };
 }
 
 export function summaryCsv(t: Takeoff): string {
