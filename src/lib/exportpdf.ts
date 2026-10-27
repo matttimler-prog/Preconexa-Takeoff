@@ -1,6 +1,7 @@
 import type { Takeoff } from "./takeoff";
 import { flattenPage } from "./flatten";
 import type { Op } from "./flatten";
+import { displayTransform } from "./pagexform";
 
 const hex = (c: string | undefined): [number, number, number] | null => {
   const m = /^#([0-9a-f]{6})$/i.exec(c ?? "");
@@ -20,20 +21,42 @@ const decode = (dataUrl: string): { bytes: Uint8Array; png: boolean } | null => 
 
 /**
  * Draws the takeoff's markups into a copy of the original PDF.
- * Pages with a rotation are skipped (reported in skippedRotated) rather than drawn in the wrong place.
+ * Rotated pages and pages whose crop box doesn't start at 0,0 are handled by wrapping the drawing in one transform
+ * (see pagexform.ts). skippedRotated is kept for compatibility and is always empty now.
  */
-export async function exportMarkedUpPdf(original: Uint8Array, t: Takeoff, opts?: { labels?: boolean }): Promise<{ bytes: Uint8Array; skippedRotated: number[] }> {
-  const { PDFDocument, StandardFonts, rgb, degrees } = await import("pdf-lib");
+export async function exportMarkedUpPdf(original: Uint8Array, t: Takeoff, opts?: { labels?: boolean; dropNative?: boolean }): Promise<{ bytes: Uint8Array; skippedRotated: number[] }> {
+  const { PDFDocument, StandardFonts, rgb, degrees, pushGraphicsState, popGraphicsState, concatTransformationMatrix } = await import("pdf-lib");
   const doc = await PDFDocument.load(original, { ignoreEncryption: true });
   const font = await doc.embedFont(StandardFonts.Helvetica), bold = await doc.embedFont(StandardFonts.HelveticaBold);
   const col = (c: string | undefined) => { const k = hex(c); return k ? rgb(k[0], k[1], k[2]) : undefined; };
   const skippedRotated: number[] = [];
+  if (opts?.dropNative) {
+    // The PDF's own markups were imported as editable markups; leave the old copies out so nothing is drawn twice.
+    // Links and form fields stay.
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const { PDFName } = (await import("pdf-lib")) as any;
+    for (const page of doc.getPages()) {
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const node: any = page.node, annots = node.Annots?.();
+      if (!annots) continue;
+      const keep = [];
+      for (let i = 0; i < annots.size(); i++) {
+        const ref = annots.get(i), d = doc.context.lookup(ref);
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        const st = String((d as any)?.get?.(PDFName.of("Subtype")) ?? "");
+        if (st === "/Link" || st === "/Widget") keep.push(ref);
+      }
+      node.set(PDFName.of("Annots"), doc.context.obj(keep));
+    }
+  }
+  const pageTransform = (page: { getRotation: () => { angle: number }; getCropBox: () => { x: number; y: number; width: number; height: number } }) => displayTransform(page.getRotation().angle, page.getCropBox());
 
   doc.getPages().forEach((page, i) => {
     const ops: Op[] = flattenPage(t, i + 1, opts);
     if (!ops.length) return;
-    if (page.getRotation().angle % 360 !== 0) { skippedRotated.push(i + 1); return; }
-    const H = page.getHeight();
+    const dt = pageTransform(page);
+    const H = dt.height;
+    page.pushOperators(pushGraphicsState(), concatTransformationMatrix(...dt.matrix));
     for (const op of ops) {
       try {
         const stroke = "stroke" in op ? col(op.stroke) : undefined;
@@ -69,15 +92,18 @@ export async function exportMarkedUpPdf(original: Uint8Array, t: Takeoff, opts?:
         }
       } catch { /* one bad markup must not abort the export */ }
     }
+    page.pushOperators(popGraphicsState());
   });
 
   // Images need async embedding, so draw them in a second pass.
   const pages = doc.getPages();
   for (let i = 0; i < pages.length; i++) {
     const page = pages[i];
-    if (page.getRotation().angle % 360 !== 0) continue;
-    const H = page.getHeight();
-    for (const op of flattenPage(t, i + 1, opts)) {
+    const dt = pageTransform(page), H = dt.height;
+    const imgs = flattenPage(t, i + 1, opts).filter((op) => op.t === "image");
+    if (!imgs.length) continue;
+    page.pushOperators(pushGraphicsState(), concatTransformationMatrix(...dt.matrix));
+    for (const op of imgs) {
       if (op.t !== "image") continue;
       try {
         const d = decode(op.dataUrl); if (!d) continue;
@@ -85,6 +111,7 @@ export async function exportMarkedUpPdf(original: Uint8Array, t: Takeoff, opts?:
         page.drawImage(img, { x: op.x, y: H - op.y - op.h, width: op.w, height: op.h });
       } catch { /* skip an unreadable picture */ }
     }
+    page.pushOperators(popGraphicsState());
   }
   return { bytes: await doc.save(), skippedRotated };
 }

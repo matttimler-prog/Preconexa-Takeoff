@@ -32,6 +32,10 @@ import { boxesInRect, findUrls, lineRects, parseLinkTarget, safeUrl, searchBoxes
 import type { Rect, TBox, TextItem } from "./lib/textboxes";
 import { CUSTOM_STAMP, STAMPS, stampText, stampWithDate } from "./lib/stamps";
 import { regionPolygon } from "./lib/rasterfill";
+import { annotationsToMarkups, importSummary } from "./lib/pdfannots";
+import type { RawAnnot } from "./lib/pdfannots";
+import { toPreconexaJson } from "./lib/exportjson";
+import { ocrCanvas, wordsToBoxes } from "./lib/ocr";
 import type { Raster } from "./lib/rasterfill";
 import { findMatchesTpl, templateFrom } from "./lib/automatch";
 import type { Img } from "./lib/automatch";
@@ -53,6 +57,7 @@ const SNAP_KEY = "preconexa.snap.v1";
 const CLIP_KEY = "preconexa.clip.v1";
 const ASK_KEY = "preconexa.asklabel.v1";
 const LABELS_KEY = "preconexa.labels.v1";
+const ISLANDS_KEY = "preconexa.islands.v1";
 const empty = (): Takeoff => ({ layers: [{ id: "l1", name: "Layer 1", color: COLORS[0], visible: true }], measurements: [], feetPerUnit: {} });
 
 const store = {
@@ -136,6 +141,9 @@ export function App() {
   const [stampDated, setStampDated] = useState(false);
   const [query, setQuery] = useState("");
   const [hits, setHits] = useState<{ page: number; rects: Rect[] }[]>([]);
+  const [hideNative, setHideNative] = useState(false);
+  const [annotsImported, setAnnotsImported] = useState(false);
+  const [dynIslands, setDynIslands] = useState<boolean>(() => store.get<boolean>(ISLANDS_KEY) ?? false);
   const [searched, setSearched] = useState("");
   const [dragId, setDragId] = useState<string | null>(null);
   const [msg, setMsg] = useState("");
@@ -206,7 +214,7 @@ export function App() {
     loaded.current = false;
     setHist(newHistory(saved ?? empty())); setActiveLayer((saved ?? empty()).layers[0].id);
     geoCache.current.clear(); setDetect(null);
-    setFileName(f.name); setFileKey(key); setDoc(d); setPage(1); setDraft([]); setSelected(null); needFit.current = true;
+    setHideNative(false); setAnnotsImported(false); setFileName(f.name); setFileKey(key); setDoc(d); setPage(1); setDraft([]); setSelected(null); needFit.current = true;
   };
   useEffect(() => {
     if (!fileKey) return;
@@ -216,7 +224,7 @@ export function App() {
   }, [t, fileKey]);
 
   useEffect(() => { store.set(SNAP_KEY, { on: snapOn, opts: snapOpts }); }, [snapOn, snapOpts]);
-  useEffect(() => { store.set(ASK_KEY, askLabel); store.set(LABELS_KEY, showLabels); }, [askLabel, showLabels]);
+  useEffect(() => { store.set(ASK_KEY, askLabel); store.set(LABELS_KEY, showLabels); store.set(ISLANDS_KEY, dynIslands); }, [askLabel, showLabels, dynIslands]);
   useEffect(() => { if (!msg) return; const id = setTimeout(() => setMsg(""), 7000); return () => clearTimeout(id); }, [msg]);
 
   // ---- vector geometry for snapping (read from the PDF drawing instructions) ----
@@ -263,12 +271,12 @@ export function App() {
       renderTask.current?.cancel();
       c.width = Math.floor(vp.width); c.height = Math.floor(vp.height);
       const ctx = c.getContext("2d"); if (!ctx) return;
-      const task = p.render({ canvasContext: ctx, viewport: vp });
+      const task = p.render({ canvasContext: ctx, viewport: vp, annotationMode: hideNative ? pdfjs.AnnotationMode.DISABLE : pdfjs.AnnotationMode.ENABLE });
       renderTask.current = task;
       try { await task.promise; } catch { /* cancelled by a newer render */ }
     })();
     return () => { dead = true; };
-  }, [doc, page, zoom, pageSize.w, pageSize.h]);
+  }, [doc, page, zoom, pageSize.w, pageSize.h, hideNative]);
 
   // ---- old revision overlay (red) ----
   useEffect(() => {
@@ -802,13 +810,18 @@ export function App() {
       cx.fillStyle = "#fff"; cx.fillRect(0, 0, c.width, c.height);
       await pg.render({ canvasContext: cx, viewport: vp }).promise;
       const im = cx.getImageData(0, 0, c.width, c.height);
-      const r = regionPolygon({ w: im.width, h: im.height, data: im.data }, p.x * s, p.y * s, { gap: Math.max(2, Math.round(1.5 * s)) });
+      const r = regionPolygon({ w: im.width, h: im.height, data: im.data }, p.x * s, p.y * s, { gap: Math.max(2, Math.round(1.5 * s)), ...(dynIslands ? { holes: { minArea: Math.round(60 * s * s), minSide: Math.round(4 * s) } } : {}) });
       setBusy(false);
       if (!r) { say("Click inside an empty space (not on a line) to fill it."); return; }
       if (r.touchesBorder) { say("That space isn't closed: there is a gap in the walls (an open door, say) so the fill leaked out. Close the gap with a line, or click a closed room."); return; }
       const pts = r.pts.map((q) => ({ x: q.x / s, y: q.y / s }));
       if (pts.length < 3) { say("That space is too small to trace."); return; }
       say(""); commit(TOOL_BY_ID.dynfill, pts);
+      const holes = dynIslands ? r.holes.map((h) => h.map((q) => ({ x: q.x / s, y: q.y / s }))).filter((h) => h.length >= 3) : [];
+      if (holes.length) {
+        apply((x) => ({ ...x, measurements: [...x.measurements, ...holes.map((h) => ({ id: newId("m"), layerId: activeLayer, kind: "cutout" as const, shape: "polygon" as const, page, label: "Cutout", pts: h, comment: "Island found by Dynamic Fill (a column or solid block). Delete it if it should not be subtracted." }))] }));
+        say(`${holes.length} island${holes.length === 1 ? "" : "s"} inside the space (columns, solid blocks) were cut out. Delete any that shouldn't be.`);
+      }
     } catch { setBusy(false); say("Couldn't read this page to fill it."); }
   };
 
@@ -937,14 +950,52 @@ export function App() {
       say("The older sheet shows in red over the current one. Use Align to line them up, then look for red that isn't covered.");
     } catch { say("Couldn't open that PDF."); }
   };
+  const importAnnots = async () => {
+    if (!doc) return;
+    setBusy(true); say("Reading the markups already in this PDF…");
+    try {
+      const all: ReturnType<typeof annotationsToMarkups>[] = [];
+      for (let pg = 1; pg <= pageCount; pg++) {
+        const p = await doc.getPage(pg), vp = p.getViewport({ scale: 1 });
+        const raw = (await p.getAnnotations({ intent: "display" })) as unknown as RawAnnot[];
+        all.push(annotationsToMarkups(raw, { page: pg, layerId: "", newId: () => newId("m"), toPage: (x, y) => { const q = vp.convertToViewportPoint(x, y); return { x: q[0], y: q[1] }; } }));
+      }
+      const items = all.flatMap((r) => r.items), skipped: Record<string, number> = {};
+      for (const r of all) for (const [k, v] of Object.entries(r.skipped)) skipped[k] = (skipped[k] ?? 0) + v;
+      if (items.length) {
+        apply((x) => { const e = ensureLayer(x, "Imported markups", "#7c3aed"); return { ...e.takeoff, measurements: [...e.takeoff.measurements, ...items.map((i) => ({ ...i, layerId: e.layerId }))] }; });
+        setHideNative(true); setAnnotsImported(true);
+      }
+      say(importSummary({ items, skipped }) + (items.length ? " The PDF's own copies are hidden so nothing shows twice, and they're left out when you export." : ""));
+    } catch { say("Couldn't read the markups in this PDF."); }
+    setBusy(false);
+  };
+  const exportPreconexa = () => {
+    if (!doc) return;
+    const j = toPreconexaJson(t, fileName.replace(/\.pdf$/i, ""));
+    download("preconexa-takeoff.json", JSON.stringify(j, null, 1));
+    say(j.warnings.length ? "Saved preconexa-takeoff.json. " + j.warnings.join(" ") : "Saved preconexa-takeoff.json. In Preconexa, open an estimate and use Import takeoff to bring the quantities in.");
+  };
+  const ocrPage = async () => {
+    if (!doc) return;
+    setBusy(true); say("Reading this sheet's text (first use downloads the reading data, so you need to be online)…");
+    try {
+      const { canvas: c, s } = await renderRaster(page);
+      const words = await ocrCanvas(c, (pr) => say(`Reading this sheet's text… ${Math.round(pr * 100)}%`));
+      const boxes = wordsToBoxes(words, s);
+      boxCache.current.set(page, boxes);
+      say(boxes.length ? `Read ${boxes.length} words on this sheet. Search and the text markups now work here. Small drawing text may be misread.` : "No readable text was found on this sheet.");
+    } catch { say("Couldn't read this sheet's text. OCR needs an internet connection the first time."); }
+    setBusy(false);
+  };
   const exportPdf = async () => {
     if (!pdfBytes.current) { say("Open a PDF first."); return; }
     setBusy(true); say("Building the marked-up PDF…");
     try {
       const { exportMarkedUpPdf } = await import("./lib/exportpdf");
-      const r = await exportMarkedUpPdf(pdfBytes.current, t, { labels: showLabels });
+      const r = await exportMarkedUpPdf(pdfBytes.current, t, { labels: showLabels, dropNative: annotsImported });
       downloadBlob(fileName.replace(/\.pdf$/i, "") + " (marked up).pdf", new Blob([r.bytes as BlobPart], { type: "application/pdf" }));
-      say(r.skippedRotated.length ? `Exported. Page(s) ${r.skippedRotated.join(", ")} are rotated, so their markups were left out of the PDF.` : "Exported. The markups are now part of the PDF pages.");
+      say("Exported. The markups are now part of the PDF pages.");
     } catch (err) { say("Couldn't build the PDF: " + (err instanceof Error ? err.message : "unknown error")); }
     setBusy(false);
   };
@@ -996,6 +1047,9 @@ export function App() {
       case "search": setLeftTab("search"); setTimeout(() => document.getElementById("search-q")?.focus(), 30); break;
       case "save": if (doc) { download("takeoff.json", JSON.stringify(t, null, 1)); say("Saved takeoff.json to your downloads. (It is also saved in this browser as you work.)"); } break;
       case "export:pdf": void exportPdf(); break;
+      case "import:annots": void importAnnots(); break;
+      case "export:preconexa": exportPreconexa(); break;
+      case "ocr:page": void ocrPage(); break;
       case "copy:pages": copyToPages(); break;
       case "doc:extract": void docOp("extract"); break;
       case "doc:delete": void docOp("delete"); break;
@@ -1153,6 +1207,9 @@ export function App() {
       { label: "Open PDF…", onClick: () => fileIn.current?.click() }, { label: "Load takeoff…", onClick: () => loadIn.current?.click() }, { sep: true, label: "" },
       { label: "Save takeoff (JSON)", shortcut: "Ctrl+S", disabled: !doc, onClick: () => run("save") },
       { label: "Export PDF with markups…", disabled: !doc || busy, onClick: () => run("export:pdf") },
+      { label: "Import markups already in this PDF", disabled: !doc || busy, onClick: () => run("import:annots") },
+      { label: "Send quantities to Preconexa (JSON)", disabled: !doc, onClick: () => run("export:preconexa") },
+      { label: "Read this scanned sheet (OCR)", disabled: !doc || busy, onClick: () => run("ocr:page") },
       { label: "Compare with an older revision…", disabled: !doc, onClick: () => run("compare:open") }, { label: "Close comparison", disabled: !cmp, onClick: () => run("compare:close") },
       { label: "Export summary (CSV)", disabled: !doc, onClick: () => download("takeoff-summary.csv", summaryCsv(t)) },
       { label: "Export every markup (CSV)", disabled: !doc, onClick: () => download("takeoff-detail.csv", toCsv(t)) } ] },
@@ -1188,6 +1245,8 @@ export function App() {
       { sep: true, label: "" }, { label: "Calibrate…", shortcut: "Shift+Alt+K", onClick: () => run("tool:calibrate") }, { label: "Scale and quantities", onClick: () => setRightTab("qty") },
       { label: "Apply scale to all pages", checked: allPages, onClick: () => setAllPages(!allPages) },
       { sep: true, label: "" }, { label: "Show measurement text on the drawing", checked: showLabels, onClick: () => setShowLabels(!showLabels) },
+      { label: "Dynamic Fill cuts out columns and islands", checked: dynIslands, onClick: () => setDynIslands(!dynIslands) },
+      { label: "Show the PDF's own markups", checked: !hideNative, onClick: () => setHideNative(!hideNative) },
       { label: "Ask for a label after each measurement", checked: askLabel, onClick: () => setAskLabel(!askLabel) } ] },
     { label: "Tools", items: [
       { label: "Tool Chest", onClick: () => setLeftTab("chest") }, { label: "Layers", onClick: () => setLeftTab("layers") }, { label: "Bookmarks", onClick: () => setLeftTab("bookmarks") }, { label: "Spaces (per room totals)", onClick: () => setRightTab("spaces") }, { label: "Compare revisions", onClick: () => setRightTab("compare") }, { label: "Make links from printed web addresses", disabled: !doc, onClick: () => void makeUrlLinks() }, { label: "Page thumbnails", onClick: () => setLeftTab("pages") }, { label: "All markups", onClick: () => setRightTab("markups") } ] },
@@ -1207,6 +1266,9 @@ export function App() {
     { id: "gr", label: "Group selected", hint: "Ctrl+G", run: () => run("group") }, { id: "ug", label: "Ungroup selected", hint: "Ctrl+Shift+G", run: () => run("ungroup") },
     { id: "find", label: "Find text in the sheets", hint: "Ctrl+F", run: () => run("search") }, { id: "bm", label: "Bookmark this page", run: addBookmark }, { id: "ul", label: "Make links from printed web addresses", run: () => void makeUrlLinks() },
     { id: "pdf", label: "Export PDF with markups", run: () => run("export:pdf") },
+    { id: "ima", label: "Import markups already in this PDF", run: () => run("import:annots") },
+    { id: "xpc", label: "Send quantities to Preconexa (JSON)", run: () => run("export:preconexa") },
+    { id: "ocr", label: "Read this scanned sheet (OCR)", run: () => run("ocr:page") },
     { id: "cp", label: "Copy selected markups to other pages (same spot)", run: () => run("copy:pages") }, { id: "cmp", label: "Compare with an older revision", run: () => run("compare:open") },
     { id: "ext", label: "Extract pages to a new PDF", run: () => run("doc:extract") }, { id: "dpg", label: "Delete pages (new PDF)", run: () => run("doc:delete") }, { id: "rot", label: "Rotate pages (new PDF)", run: () => run("doc:rotate") },
     { id: "mrg", label: "Merge another PDF", run: () => run("doc:merge") }, { id: "hdr", label: "Add header / footer / page numbers", run: () => run("doc:stamp") },

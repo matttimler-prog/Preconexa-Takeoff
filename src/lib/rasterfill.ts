@@ -101,7 +101,7 @@ export function simplify(pts: P[], eps: number): P[] {
 }
 
 /** Room outline (pixel coordinates) for a click at (sx, sy). Null if the click is out of range or nothing fillable is near it. */
-export function regionPolygon(img: Raster, sx: number, sy: number, opts: { gap?: number; threshold?: number; simplifyEps?: number } = {}): { pts: P[]; touchesBorder: boolean; areaPx: number } | null {
+export function regionPolygon(img: Raster, sx: number, sy: number, opts: { gap?: number; threshold?: number; simplifyEps?: number; holes?: { minArea: number; minSide: number } } = {}): { pts: P[]; touchesBorder: boolean; areaPx: number; holes: P[][] } | null {
   const { w, h } = img, gap = opts.gap ?? 3, eps = opts.simplifyEps ?? 1.2;
   sx = Math.round(sx); sy = Math.round(sy);
   if (sx < 0 || sy < 0 || sx >= w || sy >= h) return null;
@@ -121,5 +121,38 @@ export function regionPolygon(img: Raster, sx: number, sy: number, opts: { gap?:
   for (let i = 0; i < grown.length; i++) { if (walls[i]) grown[i] = 0; else if (grown[i]) area++; }
   const ring = simplify(traceContour(grown, w, h), eps);
   if (ring.length < 3) return null;
-  return { pts: ring, touchesBorder: fill.touchesBorder, areaPx: area };
+  return { pts: ring, touchesBorder: fill.touchesBorder, areaPx: area, holes: opts.holes ? holeRings(grown, w, h, opts.holes.minArea, opts.holes.minSide, eps) : [] };
+}
+
+/**
+ * Islands inside a filled region (columns, solid blocks): areas that are not filled but can't be reached from the
+ * image border without crossing the fill. Each comes back as its own outline. Small specks (text loops) are dropped by
+ * minArea (pixels) and minSide (the smaller side of the island's bounding box, pixels).
+ */
+export function holeRings(mask: Uint8Array, w: number, h: number, minArea: number, minSide: number, eps = 1.2): P[][] {
+  const outside = new Uint8Array(w * h), q = new Int32Array(w * h);
+  let head = 0, tail = 0;
+  const seed = (i: number) => { if (!mask[i] && !outside[i]) { outside[i] = 1; q[tail++] = i; } };
+  for (let x = 0; x < w; x++) { seed(x); seed((h - 1) * w + x); }
+  for (let y = 0; y < h; y++) { seed(y * w); seed(y * w + w - 1); }
+  while (head < tail) {
+    const i = q[head++], x = i % w, y = (i - x) / w;
+    if (x > 0) seed(i - 1); if (x < w - 1) seed(i + 1); if (y > 0) seed(i - w); if (y < h - 1) seed(i + w);
+  }
+  const seen = new Uint8Array(w * h), rings: P[][] = [];
+  for (let s0 = 0; s0 < w * h; s0++) {
+    if (mask[s0] || outside[s0] || seen[s0]) continue;
+    const comp = new Uint8Array(w * h), stack = [s0]; seen[s0] = 1;
+    let n = 0, x0 = w, y0 = h, x1 = -1, y1 = -1;
+    while (stack.length) {
+      const i = stack.pop() as number, x = i % w, y = (i - x) / w;
+      comp[i] = 1; n++; if (x < x0) x0 = x; if (x > x1) x1 = x; if (y < y0) y0 = y; if (y > y1) y1 = y;
+      const nb = [x > 0 ? i - 1 : -1, x < w - 1 ? i + 1 : -1, y > 0 ? i - w : -1, y < h - 1 ? i + w : -1];
+      for (const j of nb) if (j >= 0 && !mask[j] && !outside[j] && !seen[j]) { seen[j] = 1; stack.push(j); }
+    }
+    if (n < minArea || Math.min(x1 - x0 + 1, y1 - y0 + 1) < minSide) continue;
+    const ring = simplify(traceContour(comp, w, h), eps);
+    if (ring.length >= 3) rings.push(ring);
+  }
+  return rings;
 }

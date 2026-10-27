@@ -111,3 +111,22 @@ describe("regionPolygon", () => {
     expect(ms).toBeLessThan(2500);
   });
 });
+
+describe("islands inside a filled room", () => {
+  it("reports a column as a hole and ignores specks", () => {
+    const im = room();
+    rect(im, 90, 60, 20, 20); // a solid 20x20 column
+    rect(im, 60, 50, 4, 4); // a small speck (like part of a letter)
+    const r = regionPolygon(im, 50, 100, { gap: 2, holes: { minArea: 150, minSide: 10 } })!;
+    expect(r.holes.length).toBe(1);
+    const b = bbox(r.holes[0]);
+    expect(b.x1 - b.x0).toBeGreaterThan(17); expect(b.x1 - b.x0).toBeLessThan(26);
+    expect(b.y1 - b.y0).toBeGreaterThan(17); expect(b.y1 - b.y0).toBeLessThan(26);
+  });
+  it("finds no holes in an empty room or when the option is off", () => {
+    expect(regionPolygon(room(), 50, 100, { gap: 2, holes: { minArea: 150, minSide: 10 } })!.holes.length).toBe(0);
+    const im = room(); rect(im, 90, 60, 20, 20);
+    expect(regionPolygon(im, 50, 100, { gap: 2 })!.holes.length).toBe(0);
+  });
+});
+
