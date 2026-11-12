@@ -39,6 +39,7 @@ import { ocrCanvas, wordsToBoxes } from "./lib/ocr";
 import type { Raster } from "./lib/rasterfill";
 import { findMatchesTpl, templateFrom } from "./lib/automatch";
 import type { Img } from "./lib/automatch";
+import { buildEntry, logCsv, summarize as summarizeAutoLog, type AutoCountEntry } from "./lib/autocountlog";
 import { STATUSES, groupRows, markupRows, rowsCsv, sortRows } from "./lib/markuplist";
 import type { SortKey } from "./lib/markuplist";
 import { spaceReport, spacesCsv } from "./lib/spaces";
@@ -58,6 +59,7 @@ const CLIP_KEY = "preconexa.clip.v1";
 const ASK_KEY = "preconexa.asklabel.v1";
 const LABELS_KEY = "preconexa.labels.v1";
 const ISLANDS_KEY = "preconexa.islands.v1";
+const AUTOLOG_KEY = "preconexa.autocountlog.v1";
 const empty = (): Takeoff => ({ layers: [{ id: "l1", name: "Layer 1", color: COLORS[0], visible: true }], measurements: [], feetPerUnit: {} });
 
 const store = {
@@ -463,10 +465,22 @@ export function App() {
     } catch { say("Couldn't read this page to search it."); }
     setBusy(false);
   };
+  const autoLogSummary = () => {
+    const log = store.get<AutoCountEntry[]>(AUTOLOG_KEY) ?? [];
+    if (!log.length) { say("No auto count runs logged yet. Each time you press Count these, the run is logged on this device."); return; }
+    const sm = summarizeAutoLog(log), pc = (v: number | null) => (v == null ? "n/a" : `${Math.round(v * 100)}%`);
+    say(`Auto count beta: ${sm.runs} run(s), precision ${pc(sm.precision)}, recall ${pc(sm.recall)}${sm.suggestedThreshold != null ? `, best sensitivity on your log ${sm.suggestedThreshold.toFixed(2)}` : " (needs 3+ runs for a sensitivity suggestion)"}.`);
+  };
   const acceptAuto = async (allPages: boolean) => {
     if (!auto || !autoRef.current) return;
     const label = prompt("What are these? (e.g. duplex receptacle, 2x4 troffer)", countLabel.current ?? "");
     if (label === null) return;
+    const missedAns = prompt("Beta feedback (numbers only, nothing from the drawing is saved): how many copies did it MISS that you had to count by hand? Leave blank if unsure.", "");
+    try {
+      const log = store.get<AutoCountEntry[]>(AUTOLOG_KEY) ?? [];
+      const entry = buildEntry({ label, scope: allPages ? "all" : "page", threshold: auto.thr, rotations: auto.rot, matches: auto.ms, missed: missedAns && missedAns.trim() !== "" ? Number(missedAns) : null });
+      store.set(AUTOLOG_KEY, [...log, entry].slice(-500));
+    } catch { /* logging must never block counting */ }
     const name = label.trim() || "Counted item", ref = autoRef.current, size = Math.max(8, Math.min(60, Math.max(...auto.ms.map((m) => Math.max(m.w, m.h)).concat(8)) * 1.3));
     const mk = (pg: number, centers: Pt[]): Measurement[] => centers.map((c) => ({ id: newId("m"), layerId: activeLayer, kind: "count" as const, shape: "point" as const, page: pg, label: name, pts: [c], color: "#16a34a", lineWidth: 2, symbol: { shape: "ring" as const, size } }));
     const order = (a: Pt, b: Pt) => a.y - b.y || a.x - b.x;
@@ -1212,7 +1226,9 @@ export function App() {
       { label: "Read this scanned sheet (OCR)", disabled: !doc || busy, onClick: () => run("ocr:page") },
       { label: "Compare with an older revision…", disabled: !doc, onClick: () => run("compare:open") }, { label: "Close comparison", disabled: !cmp, onClick: () => run("compare:close") },
       { label: "Export summary (CSV)", disabled: !doc, onClick: () => download("takeoff-summary.csv", summaryCsv(t)) },
-      { label: "Export every markup (CSV)", disabled: !doc, onClick: () => download("takeoff-detail.csv", toCsv(t)) } ] },
+      { label: "Export every markup (CSV)", disabled: !doc, onClick: () => download("takeoff-detail.csv", toCsv(t)) },
+      { label: "Auto count beta: summary", onClick: autoLogSummary },
+      { label: "Auto count beta: export log (CSV)", onClick: () => { const l = store.get<AutoCountEntry[]>(AUTOLOG_KEY) ?? []; if (!l.length) say("No auto count runs logged yet."); else download("autocount-beta-log.csv", logCsv(l)); } } ] },
     { label: "Edit", items: [
       { label: "Undo", shortcut: "Ctrl+Z", disabled: !canUndo(hist), onClick: () => run("undo") }, { label: "Redo", shortcut: "Ctrl+Y", disabled: !canRedo(hist), onClick: () => run("redo") },
       { sep: true, label: "" }, { label: "Copy", shortcut: "Ctrl+C", disabled: !selected, onClick: () => run("copy") }, { label: "Cut", shortcut: "Ctrl+X", disabled: !selected, onClick: () => run("cut") },
@@ -1279,7 +1295,7 @@ export function App() {
     { id: "fit", label: "Fit page width", hint: "Ctrl+0", run: () => run("zoom:fit") }, { id: "zi", label: "Zoom in", hint: "+", run: () => run("zoom:in") }, { id: "zo", label: "Zoom out", hint: "-", run: () => run("zoom:out") },
     { id: "undo", label: "Undo", hint: "Ctrl+Z", run: () => run("undo") }, { id: "redo", label: "Redo", hint: "Ctrl+Y", run: () => run("redo") },
     { id: "open", label: "Open a PDF", run: () => fileIn.current?.click() }, { id: "save", label: "Save takeoff (JSON)", hint: "Ctrl+S", run: () => run("save") },
-    { id: "csv1", label: "Export summary (CSV)", run: () => download("takeoff-summary.csv", summaryCsv(t)) }, { id: "csv2", label: "Export every markup (CSV)", run: () => download("takeoff-detail.csv", toCsv(t)) },
+    { id: "csv1", label: "Export summary (CSV)", run: () => download("takeoff-summary.csv", summaryCsv(t)) }, { id: "csv2", label: "Export every markup (CSV)", run: () => download("takeoff-detail.csv", toCsv(t)) }, { id: "acsum", label: "Auto count beta: summary", run: autoLogSummary },
     { id: "chest", label: "Show the Tool Chest", run: () => setLeftTab("chest") }, { id: "layers", label: "Show layers", run: () => setLeftTab("layers") }, { id: "pages", label: "Show page thumbnails", run: () => setLeftTab("pages") },
     { id: "keys", label: "Keyboard shortcuts", run: () => setRightTab("keys") },
     { id: "labels", label: "Show or hide measurement text", run: () => setShowLabels(!showLabels) },
