@@ -35,6 +35,7 @@ import { regionPolygon } from "./lib/rasterfill";
 import { annotationsToMarkups, importSummary } from "./lib/pdfannots";
 import type { RawAnnot } from "./lib/pdfannots";
 import { toPreconexaJson } from "./lib/exportjson";
+import { EMBED_MESSAGE, parentOrigin } from "./lib/embed";
 import { ocrCanvas, wordsToBoxes } from "./lib/ocr";
 import type { Raster } from "./lib/rasterfill";
 import { findMatchesTpl, templateFrom } from "./lib/automatch";
@@ -973,6 +974,12 @@ export function App() {
   const exportPreconexa = () => {
     if (!doc) return;
     const j = toPreconexaJson(t, fileName.replace(/\.pdf$/i, ""));
+    const po = parentOrigin(window, window, document.referrer);
+    if (po) {
+      window.parent.postMessage({ type: EMBED_MESSAGE, name: "preconexa-takeoff.json", text: JSON.stringify(j) }, po);
+      say(j.warnings.length ? "Sent to Preconexa. " + j.warnings.join(" ") : "Sent to Preconexa. Review the rows there before anything is added to an estimate.");
+      return;
+    }
     download("preconexa-takeoff.json", JSON.stringify(j, null, 1));
     say(j.warnings.length ? "Saved preconexa-takeoff.json. " + j.warnings.join(" ") : "Saved preconexa-takeoff.json. In Preconexa, open an estimate and use Import takeoff to bring the quantities in.");
   };
